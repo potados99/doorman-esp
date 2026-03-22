@@ -1,5 +1,6 @@
 # Build
 build/
+build_host_test/
 cmake-build-*/
 
 # sdkconfig (빌드 산출물, sdkconfig.defaults로 재현)
