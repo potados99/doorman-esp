@@ -1,0 +1,15 @@
+# Build
+build/
+cmake-build-*/
+
+# sdkconfig (빌드 산출물, sdkconfig.defaults로 재현)
+sdkconfig
+sdkconfig.old
+
+# IDE
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+
+# OS
+.DS_Store

@@ -77,17 +77,40 @@ Bluetooth Classic presence detection based automatic door lock opener for office
 - BT → 원래부터 IDF API 직접
 - Arduino 레이어가 필요한 기능 없음
 
-### PSRAM 설정 (`sdkconfig.defaults`)
+### 주요 sdkconfig 설정
 
 ```
-CONFIG_ESP32_SPIRAM_SUPPORT=y
+# PSRAM
+CONFIG_SPIRAM=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
-CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE=y
-CONFIG_BTDM_CTRL_PINNED_TO_CORE_1=y
-CONFIG_BT_BLUEDROID_PINNED_TO_CORE_1=y
-CONFIG_ESP_WIFI_TASK_CORE_ID=0
+
+# Bluetooth Classic (BLE 꺼짐)
+CONFIG_BT_ENABLED=y
+CONFIG_BT_CLASSIC_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
+
+# 코어 분리: BT → Core 0, WiFi → Core 1
+CONFIG_BT_BLUEDROID_PINNED_TO_CORE_0=y
+CONFIG_BTDM_CTRL_PINNED_TO_CORE_0=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+
+# CPU/스케줄러
+CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
 CONFIG_FREERTOS_HZ=1000
+
+# 플래시/파티션
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# 코어덤프 → Flash
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+
+# 로그 타임스탬프 → 시스템 시간
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
+
+# 스택 스매싱 보호
+CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
 ```
 
 -----
@@ -98,9 +121,9 @@ CONFIG_FREERTOS_HZ=1000
 
 |태스크              |코어    |역할                      |
 |-----------------|------|------------------------|
-|`bt_scan_task`   |Core 1|BT page scan + 상태머신 tick|
-|`github_ota_task`|Core 0|GitHub 릴리즈 폴링 + 자동 OTA  |
-|HTTP 서버          |Core 0|IDF httpd 자체 태스크 (자동)   |
+|`bt_scan_task`   |Core 0|BT page scan + 상태머신 tick|
+|`github_ota_task`|Core 1|GitHub 릴리즈 폴링 + 자동 OTA  |
+|HTTP 서버          |Core 1|IDF httpd 자체 태스크 (자동)   |
 
 - 태스크는 클래스 불필요 → 단순 C 스타일 함수로 구현
 - 도메인 객체를 `arg`로 받아 조작
