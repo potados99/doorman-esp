@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CMakeSharedSettings">
+    <configurations>
+      <configuration PROFILE_NAME="ESP-IDF Debug" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="ESP-IDF" />
+      <configuration PROFILE_NAME="Host Test" ENABLED="true" CONFIG_NAME="Debug" TOOLCHAIN_NAME="System" GENERATION_OPTIONS="-DHOST_TEST=ON" />
+    </configurations>
+  </component>
+</project>
