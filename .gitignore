@@ -14,3 +14,6 @@ sdkconfig.old
 
 # OS
 .DS_Store
+
+# Local cache
+.cache/
