@@ -1,197 +1,220 @@
 # doorman-esp
 
-Bluetooth Classic presence detection based automatic door lock opener for office use.
+ESP32 기반 사무실 도어락 자동 열림 장치.
+Classic Bluetooth presence detection으로 등록된 사용자의 접근을 감지하고, GPIO 펄스로 도어락 리모컨 입력을 대신 트리거하는 것을 목표로 한다.
 
------
+현재 리포지토리는 완성품이 아니라, 다음 방향으로 가기 위한 초기 골격이다.
 
-## 개요
+- `components/gatekeeper/`: 호스트 테스트 가능한 순수 C++ 도메인 로직 시작점
+- `host_test/`: GTest 기반 호스트 테스트
+- `main/`: ESP-IDF 의존 진입점과 하드웨어 경계
+- `docs/`: 설계 브레인스토밍과 기능 플랜 문서
 
-도어락을 Bluetooth Classic presence detection으로 자동 열림 구현.  
-스마트폰과 최초 1회 페어링 후, 문 앞 접근 시 자동으로 릴레이를 트리거해 도어락을 오픈한다.
+## 현재 상태
 
------
+지금 구현된 것은 많지 않다. README는 미래 희망사항이 아니라 현재 기준으로 적는다.
 
-## 하드웨어
+- `main/main.cpp`: 아직 UART echo 예제 수준의 임시 코드
+- `components/gatekeeper/`: `Gatekeeper::feed()` 골격만 존재
+- `host_test/gatekeeper_test.cpp`: 최소 GTest 스캐폴딩 존재
+- `partitions.csv`: 8MB flash 기준 OTA 파티션 레이아웃 정의
+- `docs/plans/2026-03-25-feat-softap-ota-upload-plan.md`: 개발용 SoftAP + HTTP OTA 플랜 존재
 
-### 메인 보드
+즉, 핵심 앱 로직과 ESP 기능 구현은 이제부터 채워 넣는 단계다.
 
-- **ESP32-DevKitC VIE** (ESP32-WROVER-IE 기반)
-    - Classic Bluetooth + BLE 듀얼 지원 (오리지널 ESP32 칩)
-    - PSRAM 8MB (BT 스택 + WiFi + HTTP 서버 동시 운용 여유 확보)
-    - U.FL 외장 안테나 커넥터 — 향후 안테나 외부 노출 옵션
-    - Flash 16MB
+## 하드웨어 가정
 
-### 릴레이
+- 보드: ESP32-WROVER-IE 계열
+- Flash: 8MB
+- PSRAM: 8MB
+- 도어 제어: GPIO -> 릴레이 -> 도어락 리모컨 입력 병렬 연결
 
-- **1채널 3.3V 릴레이 모듈**
-    - VCC: ESP32 3V3 전원 핀 (GPIO 아님)
-    - 제어: GPIO 1핀
-    - 도어락 리모컨 버튼 양단에 병렬 연결
+현재 파티션 테이블은 8MB 기준으로 아래처럼 잡혀 있다.
 
-### 도어락 연동
+| Partition | Offset | Size |
+| --- | --- | --- |
+| `nvs` | `0x9000` | `24KB` |
+| `otadata` | `0xF000` | `8KB` |
+| `phy_init` | `0x11000` | `4KB` |
+| `ota_0` | `0x20000` | `3MB` |
+| `ota_1` | `0x320000` | `3MB` |
+| `coredump` | `0x620000` | `1MB` |
+| `nvs_keys` | `0x720000` | `4KB` |
 
-- **실내용 리모컨 수신기 세트** 별도 구매
-- 리모컨 버튼 양단에 릴레이 병렬 연결 → ESP32 GPIO로 트리거
-- RF 신호 분석 불필요, 수신기는 도어락에 그대로 유지
+## 아키텍처 원칙
 
------
+이 프로젝트는 `ESP-IDF를 쓰되, 앱 로직은 C++17로 작성`하는 방향으로 간다.
 
-## Bluetooth 설계
+핵심 원칙은 단순하다.
 
-### Presence Detection 방식
+- ESP-IDF 경계는 얇고 담백하게 유지한다.
+- 상태머신, 정책, 캐시, 검증 로직은 C++로 작성한다.
+- 불필요한 추상화와 래퍼는 만들지 않는다.
+- 테스트 가능한 순수 로직은 `components/`로 분리한다.
+- 하드웨어 의존 코드는 `main/`에 둔다.
 
-- **Classic Bluetooth page scan** (BLE 아님)
-- 스마트폰과 최초 1회 페어링 필수
-- 페어링 후 MAC 고정 → 랜덤화 문제 없음
-- iOS/Android 모두 지원
+한 줄로 요약하면 이렇다.
 
-### 순회 로직
+`하드웨어 경계는 C스럽게, 도메인 로직은 C++스럽게.`
 
-- 등록된 기기 리스트를 순차 page scan
-- page timeout: `esp_bt_gap_set_page_to()` 로 최솟값 튜닝 (실측 필요)
-- 이론상 대당 ~14ms (0x0016 × 0.625ms), 실제는 테스트로 확인
-- 항상 풀스피드 순회 (PIR 없음)
+## OTA 전략
 
-### 오탐 방지
+펌웨어 업데이트는 한 가지 경로로 고정하지 않는다.
+이 프로젝트는 목적이 다른 두 경로를 함께 가진다.
 
-- 새로 감지된 MAC만 트리거
-- 이미 실내에 있는 기기는 presence cache로 추적 → 무시
-- 일정 시간 미감지 시 cache에서 제거
+- `로컬 수동 OTA`: SoftAP + HTTP 업로드로 `.bin` 파일을 직접 올린다. 주 용도는 로컬 개발, 초기 bring-up, 디버거 없이 빠른 반복 플래시다.
+- `원격 자동 OTA`: GitHub Releases를 주기적으로 폴링해 새 버전이 있으면 자동으로 업데이트한다. 주 용도는 배포 후 운영 편의다.
 
------
+두 경로는 모두 같은 OTA 파티션 구조(`ota_0` / `ota_1`)를 사용한다.
+차이는 업데이트 트리거 방식이고, 플래시 쓰기와 부트 파티션 전환은 가능한 한 공통 흐름으로 가져간다.
 
-## 소프트웨어 스택
+현재 활성 플랜은 `로컬 수동 OTA`만 다룬다.
+GitHub 폴링 기반 자동 OTA는 그 다음 단계다.
 
-### 개발 환경
+## C++ 컨벤션
 
-- **ESP-IDF v6.0** (순수 IDF, Arduino as a component 미사용)
-- **C++** (전 파일 `.cpp`, `.c` 없음)
-- **CLion** + ESP-IDF 플러그인
-- 파일명 컨벤션: `snake_case`, 클래스명: `PascalCase`
+ESP-IDF는 C 중심 생태계지만, 앱 레벨 로직까지 C로 쓸 이유는 없다.
+이 프로젝트에서는 아래 기준을 기본 규칙으로 삼는다.
 
-### Arduino 미사용 이유
+### 1. 어디까지 C++를 쓰는가
 
-- HTTP 서버 → IDF 내장 `esp_http_server`
-- OTA → IDF 내장 `esp_https_ota` / `esp_ota_ops`
-- WebSocket → IDF 내장
-- BT → 원래부터 IDF API 직접
-- Arduino 레이어가 필요한 기능 없음
+적극적으로 C++를 쓰는 영역:
 
-### 주요 sdkconfig 설정
+- 상태머신
+- 설정 구조체와 검증
+- presence cache
+- 순수 판단 로직
+- 호스트 테스트 대상 코드
 
-```
-# PSRAM
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+담백한 C 스타일로 두는 영역:
 
-# Bluetooth Classic (BLE 꺼짐)
-CONFIG_BT_ENABLED=y
-CONFIG_BT_CLASSIC_ENABLED=y
-CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
+- `app_main()`
+- FreeRTOS task entry 함수
+- ESP-IDF event callback
+- HTTP handler entry
+- NVS, WiFi, BT, GPIO 같은 하드웨어/프레임워크 경계
 
-# 코어 분리: BT → Core 0, WiFi → Core 1
-CONFIG_BT_BLUEDROID_PINNED_TO_CORE_0=y
-CONFIG_BTDM_CTRL_PINNED_TO_CORE_0=y
-CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+### 2. 어떤 C++를 선호하는가
 
-# CPU/스케줄러
-CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
-CONFIG_FREERTOS_HZ=1000
+선호:
 
-# 플래시/파티션
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_PARTITION_TABLE_CUSTOM=y
+- `enum class`
+- 작은 `struct`
+- 명시적인 생성자 주입
+- 값 타입 중심 설계
+- `std::array`, `std::optional` 같은 가벼운 표준 라이브러리
+- 클래스와 free function의 혼용
 
-# 코어덤프 → Flash
-CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+지양:
 
-# 로그 타임스탬프 → 시스템 시간
-CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
+- 모든 것을 객체로 만드는 설계
+- 얇은 IDF API까지 전부 래핑하는 계층
+- 테스트를 위해 미리 인터페이스를 남발하는 것
+- 상속/가상함수 중심 설계
+- 예외나 RTTI에 기대는 설계
+- 핫패스에서 과도한 동적 할당과 큰 문자열 조작
 
-# 스택 스매싱 보호
-CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
-```
+### 3. 클래스 사용 기준
 
------
+클래스는 아래 중 하나라도 만족할 때만 쓴다.
 
-## 아키텍처
+- 내부 상태를 오래 유지해야 한다
+- 명확한 불변식이 있다
+- 같은 데이터를 묶은 채 여러 메서드가 같이 움직여야 한다
 
-### FreeRTOS 태스크 구성
+그 외에는 `struct + function` 또는 순수 함수가 더 낫다.
 
-|태스크              |코어    |역할                      |
-|-----------------|------|------------------------|
-|`bt_scan_task`   |Core 0|BT page scan + 상태머신 tick|
-|`github_ota_task`|Core 1|GitHub 릴리즈 폴링 + 자동 OTA  |
-|HTTP 서버          |Core 1|IDF httpd 자체 태스크 (자동)   |
+### 4. 테스트 전략
 
-- 태스크는 클래스 불필요 → 단순 C 스타일 함수로 구현
-- 도메인 객체를 `arg`로 받아 조작
+- ESP 의존 없는 로직은 `components/` 아래 순수 C++로 둔다
+- 이런 코드는 호스트에서 GTest로 검증한다
+- ESP-IDF 의존 로직은 `main/`에서 얇게 유지한다
 
-### 상태머신
+즉, 테스트 가능성은 `인터페이스 남발`이 아니라 `경계 분리`로 확보한다.
 
-- `DoorLockStateMachine` 클래스가 핵심 도메인 로직 담당
-- `bt_scan_task` 가 루프에서 `sm.tick()` 호출
-- 상태: `IDLE` → `SCANNING` → `DEVICE_FOUND` → `UNLOCKING` → `COOLDOWN`
+## 디렉터리 원칙
 
-### 인터페이스 기반 설계 (테스트 가능성)
+현재 구조:
 
-```cpp
-class IBluetoothScanner { ... };   // mock 가능
-class IGPIOController { ... };     // mock 가능
-```
-
-- 호스트 GTest로 상태머신 로직 단위 테스트
-- 하드웨어 의존 코드는 Unity on device
-
-### 프로젝트 구조
-
-```
+```text
+components/
+  gatekeeper/
+    include/gatekeeper.h
+    gatekeeper.cpp
+    CMakeLists.txt
+host_test/
+  gatekeeper_test.cpp
 main/
-├── main.cpp                        # app_main() 진입점만
-├── CMakeLists.txt
-│
-├── bt/
-│   ├── bluetooth_scanner.h/.cpp   # IDF BT API 래핑
-│   ├── presence_cache.h/.cpp
-│   └── bt_scan_task.cpp           # 태스크 진입 함수
-│
-├── door/
-│   ├── door_lock_state_machine.h/.cpp
-│   └── debouncer.h/.cpp
-│
-├── gpio/
-│   ├── gpio_controller.h/.cpp
-│
-├── ota/
-│   ├── github_ota_checker.h/.cpp
-│   └── github_ota_task.cpp
-│
-└── log/
-    └── log_server.h/.cpp          # WebSocket 로그 스트리밍
+  main.cpp
+  CMakeLists.txt
+docs/
+  brainstorms/
+  plans/
+sdkconfig.defaults
+partitions.csv
 ```
 
------
+앞으로도 기본 방향은 크게 바꾸지 않는다.
 
-## 원격 관리
+- `components/`: 호스트 테스트 가능한 순수 로직
+- `main/`: ESP-IDF 의존 코드
+- `host_test/`: 컴포넌트 단위 테스트
+- `docs/`: 구현보다 앞서 합의가 필요한 설계/플랜 문서
 
-### 로그
+## 가까운 구현 우선순위
 
-- WebSocket으로 실시간 스트리밍
-- 브라우저 또는 터미널 클라이언트로 접속
+현재 기준 우선순위는 아래와 같다.
 
-### OTA
+1. 개발용 SoftAP + HTTP OTA 업로드
+2. GitHub Releases 폴링 기반 자동 OTA
+3. Gatekeeper 상태머신 구체화
+4. Bluetooth presence scan 연결
+5. GPIO 도어 트리거 연결
+6. 설정 저장과 웹 UI 확장
 
-- `github_ota_task` 가 분 단위로 GitHub Releases API 폴링
-- 현재 펌웨어 버전과 비교, 신규 릴리즈 감지 시 자동 `esp_https_ota`
-- 별도 Push 필요 없음
+SoftAP + OTA는 운영용 기능이 아니라 `개발 편의용`이다.
+초회만 시리얼/JTAG로 올리고, 이후 반복 개발은 웹 업로드로 돌리는 흐름을 의도한다.
 
------
+## 빌드와 테스트
 
-## 설계 철학
+### ESP-IDF 빌드
 
-- **실용적 C++**: OOP 강박 없이 상황에 맞는 패러다임 혼용
-- **C 스타일 혼용 허용**: FreeRTOS/IDF API 직접 호출, 불필요한 래핑 금지
-- **인터페이스는 테스트 가능성을 위해**: 하드웨어 의존성 역전
-- **YAGNI**: 필요할 때 클래스로 올리기, 미리 추상화 금지
-- **레이어 최소화**: Arduino 없이 IDF 네이티브로 군더더기 제거
+환경 준비가 끝난 상태라면 일반적인 IDF 흐름으로 빌드한다.
+
+```bash
+idf.py build
+idf.py flash
+idf.py monitor
+```
+
+### 호스트 테스트
+
+호스트 테스트는 루트 `CMakeLists.txt`의 `HOST_TEST` 경로를 사용한다.
+
+```bash
+cmake -S . -B build-host -DHOST_TEST=ON
+cmake --build build-host
+ctest --test-dir build-host
+```
+
+## 문서
+
+현재 참고할 설계 문서는 아래 두 개다.
+
+- `docs/brainstorms/2026-03-25-doorman-architecture-brainstorm.md`
+- `docs/plans/2026-03-25-feat-softap-ota-upload-plan.md`
+
+브레인스토밍 문서는 방향을 잡는 데 쓰고, 실제 구현 전환은 플랜 문서를 기준으로 한다.
+
+## 하지 않을 것
+
+이 프로젝트에서는 아래 같은 방향을 기본적으로 피한다.
+
+- Arduino 레이어 추가
+- 이유 없는 대규모 추상화
+- 미래를 위한 인터페이스 설계
+- 문서와 코드의 상태 불일치
+- 존재하지 않는 파일/구조를 README에 먼저 적어두는 것
+
+README는 코드베이스의 현재와 기준을 설명하는 문서여야 한다.
+앞으로도 이 원칙대로 유지한다.
