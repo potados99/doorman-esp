@@ -3,6 +3,7 @@ idf_component_register(
         "main.cpp"
         "wifi.cpp"
         "http_server.cpp"
+        "bt_presence_poc.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -10,6 +11,8 @@ idf_component_register(
         esp_event
         esp_http_server
         esp_netif
+        bt
+        mbedtls
         esp_wifi
         nvs_flash
     EMBED_TXTFILES

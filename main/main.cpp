@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "bt_presence_poc.h"
 #include "http_server.h"
 #include "wifi.h"
 
@@ -17,7 +18,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Starting Doorman...");
     wifi_init_softap();
     start_webserver();
+    ESP_ERROR_CHECK(bt_presence_poc_start());
     ESP_LOGI(TAG, "Ready. Connect to 'Doorman-Setup' (pw: 12345678), visit http://192.168.4.1");
-
     ESP_LOGI(TAG, "Hello, world!");
 }
