@@ -1,3 +1,17 @@
-idf_component_register(SRCS "main.cpp"
-                       INCLUDE_DIRS "."
-                       REQUIRES esp_driver_uart)
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "wifi.cpp"
+        "http_server.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        app_update
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_wifi
+        nvs_flash
+    EMBED_TXTFILES
+        "../frontend/index.html"
+)
