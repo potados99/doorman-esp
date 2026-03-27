@@ -80,6 +80,25 @@ unauthorized:
     return false;
 }
 
+// URL decode in-place: %20 → ' ', + → ' '
+static void url_decode(char *str) {
+    char *src = str;
+    char *dst = str;
+    while (*src) {
+        if (*src == '%' && src[1] && src[2]) {
+            char hex[3] = {src[1], src[2], '\0'};
+            *dst++ = static_cast<char>(strtol(hex, nullptr, 16));
+            src += 3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
 // Read POST body into a stack buffer. Returns length or -1.
 static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
     if (req->content_len <= 0 || req->content_len >= static_cast<int>(buf_size)) {
@@ -112,6 +131,8 @@ static esp_err_t wifi_setup_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
     httpd_query_key_value(body, "pass", pass, sizeof(pass)); // password can be empty
+    url_decode(ssid);
+    url_decode(pass);
 
     nvs_save_wifi(ssid, pass);
     send_text(req, "200 OK", "OK");
@@ -152,6 +173,8 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
     if (httpd_query_key_value(body, "pass", pass, sizeof(pass)) != ESP_OK || pass[0] == '\0') {
         return send_text(req, "400 Bad Request", "Password is required");
     }
+    url_decode(user);
+    url_decode(pass);
 
     nvs_save_auth(user, pass);
     return send_text(req, "200 OK", "OK");
@@ -171,6 +194,8 @@ static esp_err_t wifi_update_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
     httpd_query_key_value(body, "pass", pass, sizeof(pass));
+    url_decode(ssid);
+    url_decode(pass);
 
     nvs_save_wifi(ssid, pass);
     send_text(req, "200 OK", "OK");
