@@ -17,3 +17,6 @@ sdkconfig.old
 
 # Local cache
 .cache/
+
+# IDF component manager downloads
+managed_components/

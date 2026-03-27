@@ -3,51 +3,21 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Doorman Firmware Update</title>
+    <title>Doorman</title>
     <style>
-        body {
-            font-family: system-ui, sans-serif;
-            max-width: 480px;
-            margin: 40px auto;
-            padding: 0 16px;
-            line-height: 1.4;
-        }
-        h1 {
-            font-size: 1.4rem;
-            margin: 0 0 8px;
-        }
-        p {
-            margin: 0 0 16px;
-        }
-        input, button, progress {
-            width: 100%;
-            box-sizing: border-box;
-        }
-        button {
-            margin-top: 12px;
-            padding: 10px 14px;
-            border: 0;
-            border-radius: 8px;
-            background: #1f6feb;
-            color: #fff;
-            font: inherit;
-            cursor: pointer;
-        }
-        button:disabled {
-            background: #8b949e;
-            cursor: not-allowed;
-        }
-        progress {
-            height: 18px;
-            margin-top: 12px;
-            display: none;
-        }
-        #status {
-            margin-top: 12px;
-            padding: 10px 12px;
-            border-radius: 8px;
-            display: none;
-        }
+        body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; line-height: 1.4; }
+        h1 { font-size: 1.4rem; margin: 0 0 20px; }
+        h2 { font-size: 1.1rem; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid #eee; }
+        h2:first-of-type { border-top: none; padding-top: 0; }
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin: 8px 0 4px; }
+        input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+        input[type="file"] { width: 100%; box-sizing: border-box; }
+        button { width: 100%; margin-top: 10px; padding: 10px 14px; border: 0; border-radius: 8px; background: #1f6feb; color: #fff; font: inherit; cursor: pointer; }
+        button:disabled { background: #8b949e; cursor: not-allowed; }
+        .btn-danger { background: #da3633; }
+        .btn-green { background: #238636; }
+        progress { width: 100%; height: 18px; margin-top: 10px; display: none; }
+        .status { margin-top: 8px; padding: 8px 10px; border-radius: 6px; display: none; font-size: 0.9rem; }
         .ok { background: #dafbe1; color: #116329; }
         .err { background: #ffebe9; color: #a40e26; }
         .run { background: #ddf4ff; color: #0550ae; }
@@ -55,78 +25,128 @@
 </head>
 <body>
     <h1>Doorman</h1>
-    <p>Upload a firmware `.bin` file.</p>
 
+    <!-- Door Control -->
+    <h2>Door</h2>
+    <button class="btn-green" onclick="openDoor()">Open Door</button>
+    <div id="doorStatus" class="status"></div>
+
+    <!-- Firmware Update -->
+    <h2>Firmware</h2>
     <input id="file" type="file" accept=".bin,application/octet-stream">
-    <button id="uploadBtn" type="button" onclick="uploadFirmware()">Upload &amp; Reboot</button>
+    <button onclick="uploadFirmware()">Upload &amp; Reboot</button>
     <progress id="progress" value="0" max="100"></progress>
-    <div id="status"></div>
+    <div id="otaStatus" class="status"></div>
 
-    <script>
-        function setStatus(message, klass) {
-            var status = document.getElementById('status');
-            status.textContent = message;
-            status.className = klass;
-            status.style.display = 'block';
+    <!-- Account -->
+    <h2>Account</h2>
+    <label for="authUser">Username</label>
+    <input id="authUser" type="text" maxlength="31" autocomplete="off">
+    <label for="authPass">Password</label>
+    <input id="authPass" type="password" maxlength="63">
+    <button onclick="updateAuth()">Update Account</button>
+    <div id="authStatus" class="status"></div>
+
+    <!-- WiFi -->
+    <h2>WiFi</h2>
+    <label for="wifiSsid">SSID</label>
+    <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
+    <label for="wifiPass">Password</label>
+    <input id="wifiPass" type="password" maxlength="63">
+    <button class="btn-danger" onclick="updateWifi()">Save &amp; Reboot</button>
+    <div id="wifiStatus" class="status"></div>
+
+<script>
+function show(id, msg, cls) {
+    var el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status ' + cls;
+    el.style.display = 'block';
+}
+
+function post(url, body, statusId, okMsg, reboot) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    if (body !== null) {
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    }
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show(statusId, okMsg, 'ok');
+        } else {
+            show(statusId, 'Error: ' + xhr.responseText, 'err');
         }
-
-        function resetControls() {
-            var button = document.getElementById('uploadBtn');
-            var progress = document.getElementById('progress');
-            button.disabled = false;
-            button.textContent = 'Upload & Reboot';
-            progress.style.display = 'none';
-            progress.value = 0;
+    };
+    xhr.onerror = function() {
+        if (reboot) {
+            show(statusId, okMsg, 'ok');
+        } else {
+            show(statusId, 'Connection lost.', 'err');
         }
+    };
+    xhr.send(body);
+}
 
-        function uploadFirmware() {
-            var fileInput = document.getElementById('file');
-            var file = fileInput.files[0];
-            var button = document.getElementById('uploadBtn');
-            var progress = document.getElementById('progress');
+function openDoor() {
+    show('doorStatus', 'Sending...', 'run');
+    post('/api/door/open', null, 'doorStatus', 'Door opened!', false);
+}
 
-            if (!file) {
-                setStatus('Select a .bin file first.', 'err');
-                return;
-            }
+function uploadFirmware() {
+    var file = document.getElementById('file').files[0];
+    if (!file) { show('otaStatus', 'Select a .bin file first.', 'err'); return; }
 
-            button.disabled = true;
-            button.textContent = 'Uploading...';
-            progress.style.display = 'block';
-            setStatus('Uploading ' + file.name + '...', 'run');
+    var bar = document.getElementById('progress');
+    bar.style.display = 'block';
+    bar.value = 0;
+    show('otaStatus', 'Uploading...', 'run');
 
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/firmware/upload', true);
-            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-
-            xhr.upload.onprogress = function (event) {
-                if (event.lengthComputable) {
-                    progress.value = Math.round((event.loaded / event.total) * 100);
-                }
-            };
-
-            xhr.onload = function () {
-                if (xhr.status === 200) {
-                    progress.value = 100;
-                    setStatus('Upload complete. Rebooting now.', 'ok');
-                } else {
-                    setStatus('Upload failed: ' + (xhr.responseText || xhr.statusText || 'unknown error'), 'err');
-                    resetControls();
-                }
-            };
-
-            xhr.onerror = function () {
-                setStatus('Connection lost. The device may be rebooting.', 'err');
-                resetControls();
-            };
-
-            xhr.onabort = function () {
-                setStatus('Upload cancelled.', 'err');
-                resetControls();
-            };
-
-            xhr.send(file);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/firmware/upload');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) bar.value = Math.round(e.loaded / e.total * 100);
+    };
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            bar.value = 100;
+            show('otaStatus', 'Upload complete. Rebooting...', 'ok');
+        } else {
+            show('otaStatus', 'Failed: ' + xhr.responseText, 'err');
+            bar.style.display = 'none';
         }
-    </script>
+    };
+    xhr.onerror = function() {
+        show('otaStatus', 'Connection lost. Device may be rebooting.', 'ok');
+    };
+    xhr.send(file);
+}
+
+function updateAuth() {
+    var user = document.getElementById('authUser').value.trim();
+    var pass = document.getElementById('authPass').value;
+    if (!user || !pass) { show('authStatus', 'Both fields are required.', 'err'); return; }
+
+    show('authStatus', 'Saving...', 'run');
+    post('/api/auth/update',
+         'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass),
+         'authStatus',
+         'Account updated. Close this tab and reconnect to use new credentials.',
+         false);
+}
+
+function updateWifi() {
+    var ssid = document.getElementById('wifiSsid').value.trim();
+    var pass = document.getElementById('wifiPass').value;
+    if (!ssid) { show('wifiStatus', 'SSID is required.', 'err'); return; }
+
+    show('wifiStatus', 'Saving...', 'run');
+    post('/api/wifi/update',
+         'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass),
+         'wifiStatus',
+         'Saved! Device is rebooting...',
+         true);
+}
+</script>
 </body>
 </html>

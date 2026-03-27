@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Doorman Setup</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 400px; margin: 40px auto; padding: 0 16px; line-height: 1.4; }
+        h1 { font-size: 1.4rem; margin: 0 0 4px; }
+        p { color: #666; margin: 0 0 20px; }
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin: 12px 0 4px; }
+        input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+        button { width: 100%; margin-top: 20px; padding: 10px 14px; border: 0; border-radius: 8px; background: #1f6feb; color: #fff; font: inherit; cursor: pointer; }
+        button:disabled { background: #8b949e; cursor: not-allowed; }
+        #status { margin-top: 12px; padding: 10px 12px; border-radius: 8px; display: none; }
+        .ok { background: #dafbe1; color: #116329; }
+        .err { background: #ffebe9; color: #a40e26; }
+        .run { background: #ddf4ff; color: #0550ae; }
+    </style>
+</head>
+<body>
+    <h1>Doorman Setup</h1>
+    <p>Connect this device to your WiFi network.</p>
+
+    <label for="ssid">WiFi SSID</label>
+    <input id="ssid" type="text" maxlength="32" autocomplete="off">
+
+    <label for="pass">WiFi Password</label>
+    <input id="pass" type="password" maxlength="63">
+
+    <button id="btn" type="button" onclick="save()">Save &amp; Reboot</button>
+    <div id="status"></div>
+
+<script>
+function show(msg, cls) {
+    var s = document.getElementById('status');
+    s.textContent = msg;
+    s.className = cls;
+    s.style.display = 'block';
+}
+
+function save() {
+    var ssid = document.getElementById('ssid').value.trim();
+    var pass = document.getElementById('pass').value;
+
+    if (!ssid) {
+        show('SSID is required.', 'err');
+        return;
+    }
+
+    var btn = document.getElementById('btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    show('Saving WiFi credentials...', 'run');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/wifi/setup');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show('Saved! Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
+        } else {
+            show('Error: ' + xhr.responseText, 'err');
+            btn.disabled = false;
+            btn.textContent = 'Save & Reboot';
+        }
+    };
+    xhr.onerror = function() {
+        show('Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
+    };
+    xhr.send('ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass));
+}
+</script>
+</body>
+</html>

@@ -3,11 +3,14 @@ idf_component_register(
         "main.cpp"
         "wifi.cpp"
         "http_server.cpp"
+        "nvs_config.cpp"
+        "door_control.cpp"
         "bt_presence_poc.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
         app_update
+        esp_driver_gpio
         esp_event
         esp_http_server
         esp_netif
@@ -17,4 +20,5 @@ idf_component_register(
         nvs_flash
     EMBED_TXTFILES
         "../frontend/index.html"
+        "../frontend/setup.html"
 )
