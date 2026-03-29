@@ -220,6 +220,29 @@ Control Task 루프: 큐 대기 → 명령 수신 → GPIO HIGH 0.5초 → GPIO 
 - `setConfig()`: NVS 저장 + 내부 값 갱신 (lock 내)
 - SM Task는 tick()마다 `getConfig()`로 최신 설정 참조.
 
+**실시간 로그 → WebSocket 스트리밍 (Phase 5):**
+
+기기 상태를 별도 API로 빼지 않는다. SM Task가 찍는 ESP_LOG가 곧 상태 정보.
+
+```
+[Any Task] → ESP_LOGI() → esp_log_set_vprintf(custom_vprintf)
+    ├─ UART (시리얼)
+    └─ Ring Buffer (~8KB, circular) → WS Handler → 브라우저
+```
+
+- `esp_log_set_vprintf()`로 전체 ESP_LOG 후킹. 필터링 없이 전체 전송.
+- FreeRTOS Ring Buffer (thread-safe). WS 클라이언트 없으면 순환 덮어씀.
+- SM Task는 상태 변경 시 의미 있는 로그를 ESP_LOGI로 출력 (감지/미감지/Unlock/쿨다운 등).
+- **Phase 3에서 SM 로직 구현 시 적절한 ESP_LOGI 호출을 포함**해야 Phase 5 WS 스트리밍과 자연스럽게 연결됨.
+
+Phase 3 StateMachine에 넣을 로그 포인트:
+- feed(true) → 새 기기 첫 감지, 또는 미감지 후 재감지
+- feed(false) → 즉시 미감지 전환
+- tick() → 타임아웃에 의한 미감지 전환
+- tick() → Unlock 판정
+- tick() → 연속 감지 N초 요약 (1~5초 간격, 스팸 방지)
+- cleanup_stale() → 오래된 슬롯 정리
+
 ### NVS 연동 (Phase 4에서 `main/config_service.cpp`로)
 
 Phase 3에서는 NVS 연동을 하지 않는다. AppConfig는 기본값으로 생성하여 테스트.
@@ -231,6 +254,14 @@ Phase 4에서 `config_service.cpp`가 NVS namespace `door`, keys `cooldown`/`tim
 - **AppConfig 수명**: Phase 3에서는 값 복사이므로 수명 문제 없음. Phase 4에서 `getConfig()` 서비스로 전환 시에도 복사본 반환이므로 댕글링 없음.
 - **시간 단위**: StateMachine 내부는 밀리초(uint32_t). 호출 측(main/)에서 FreeRTOS tick을 ms로 변환하여 전달.
 - **기존 gatekeeper 디렉토리 리네임**: `components/gatekeeper/` → `components/statemachine/`. 헤더, 소스, CMakeLists, 테스트 파일 모두 변경.
+- **코드 주석 스타일**: 모든 public 메서드에 `/** */` doc 주석. **why를 설명하는 주석을 풍부하게.** factbox-esp 스타일 — 메서드의 존재 이유, 파라미터 선택 근거, 사이드이펙트 등. 코드만 봐서는 알기 어려운 맥락을 주석으로 남긴다.
+
+## Phase 4 Forward-Looking
+
+Phase 3에서 직접 구현하지는 않지만, Phase 4 설계에 영향을 주는 결정사항:
+
+- **페어링 윈도우**: 부팅 후 30초 자동 + 웹 UI에서 트리거 가능. 스캔 중단 없이 BLE advertising / Classic discoverable 켜고, BT Task 루프 내부 if로 타이머 관리 (타이머 콜백 대신 — BT API 호출이 같은 태스크에서 일어나 스레드 안전).
+- **BT bond 삭제**: 웹 UI 기기 삭제 → HTTP → BT Task 큐 → `esp_ble_remove_bond_device()` / `esp_bt_gap_remove_bond_device()`. BT Task에서만 BT API 호출.
 
 ## Acceptance Criteria
 

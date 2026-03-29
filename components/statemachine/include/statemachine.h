@@ -6,19 +6,63 @@
 #include <cstdint>
 #include <cstring>
 
+/**
+ * StateMachine이 tick()에서 반환하는 액션.
+ * Unlock이면 문을 열어야 하고, NoOp이면 아무것도 안 한다.
+ */
 enum class Action { Unlock, NoOp };
 
+/**
+ * BT presence 기반 문열림 판단 상태머신.
+ *
+ * 외부에서 feed()로 BT 감지 이벤트를 넣고, tick()을 주기적으로 호출하면
+ * 내부적으로 per-device 상태(감지 여부, 쿨다운, 타임아웃)를 관리하고
+ * 문을 열어야 하는 시점에 Unlock을 반환한다.
+ *
+ * 기기 등록/삭제 API는 없다. BT 스택이 bond를 관리하고,
+ * bt_manager가 bonded peer만 feed하므로 SM은 들어오는 MAC에 대해
+ * 동적으로 슬롯을 생성한다.
+ *
+ * 이 클래스는 순수 C++이며 ESP-IDF에 의존하지 않는다.
+ * SM Task가 유일한 소유자 — 외부에서는 큐로만 접근한다.
+ */
 class StateMachine {
 public:
-    static const int kMaxDevices = 30;
+    static constexpr int kMaxDevices = 30;
 
     explicit StateMachine(AppConfig cfg);
 
+    /**
+     * BT/BLE 스캔 결과를 기록한다.
+     *
+     * seen=true:  기기가 감지됨. BLE adv 수신 또는 Classic probe 성공.
+     * seen=false: 기기가 미감지. Classic probe 실패 시 즉시 미감지 전환.
+     *             BLE는 항상 true로 호출 — "안 보인다"는 tick()의 타임아웃이 판단.
+     *
+     * now_ms를 명시적으로 받는 이유: 호스트 테스트에서 시간을 완전히 제어하기 위함.
+     */
     void feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms);
-    Action tick(uint32_t now_ms);
-    int device_count() const;
+
+    /**
+     * 주기적으로 호출하여 시간 기반 상태 전이를 평가한다.
+     *
+     * 1. 타임아웃 체크: feed(true) 이후 presence_timeout_ms 경과 → 미감지 전환
+     * 2. Unlock 판정: 감지 중이고 쿨다운 조건 충족 시 Unlock 반환
+     *
+     * 한 번에 최대 하나의 Unlock만 반환한다.
+     * 복수 기기가 동시에 조건을 만족해도 다음 tick에서 순차 처리.
+     * 1~3초 주기로 호출하면 실사용에 문제없다.
+     */
+    [[nodiscard]] Action tick(uint32_t now_ms);
+
+    /** 현재 추적 중인(valid 슬롯이 있는) 기기 수. */
+    [[nodiscard]] int device_count() const;
 
 private:
+    /**
+     * per-device 상태. feed()가 새 MAC을 만나면 빈 슬롯에 동적 생성.
+     * 24시간 이상 미감지되면 tick()에서 정리(슬롯 해제).
+     */
     struct DeviceState {
         uint8_t mac[6] = {};
         bool valid = false;
@@ -31,7 +75,12 @@ private:
     AppConfig config_;
     std::array<DeviceState, kMaxDevices> devices_ = {};
 
+    /** MAC으로 기존 슬롯 검색. 없으면 nullptr. */
     DeviceState *find_device(const uint8_t (&mac)[6]);
+
+    /** MAC으로 기존 슬롯 검색하고, 없으면 빈 슬롯에 새로 생성. 슬롯 풀이면 nullptr. */
     DeviceState *find_or_create(const uint8_t (&mac)[6]);
+
+    /** 24시간 이상 미감지된 슬롯을 해제하여 재활용 가능하게 한다. */
     void cleanup_stale(uint32_t now_ms);
 };
