@@ -18,24 +18,41 @@ if(HOST_TEST)
     enable_testing()
 
     # 테스트 대상 컴포넌트
-    add_library(gatekeeper
-        components/gatekeeper/gatekeeper.cpp
+    add_library(config
+        components/config/config.cpp
     )
-    target_include_directories(gatekeeper PUBLIC
-        components/gatekeeper/include
+    target_include_directories(config PUBLIC
+        components/config/include
     )
 
-    # 테스트 바이너리
-    add_executable(gatekeeper_test
-        host_test/gatekeeper_test.cpp
+    add_library(statemachine
+        components/statemachine/statemachine.cpp
     )
-    target_link_libraries(gatekeeper_test
-        gatekeeper
+    target_include_directories(statemachine PUBLIC
+        components/statemachine/include
+    )
+    target_link_libraries(statemachine PUBLIC config)
+
+    # 테스트 바이너리
+    add_executable(config_test
+        host_test/config_test.cpp
+    )
+    target_link_libraries(config_test
+        config
+        GTest::gtest_main
+    )
+
+    add_executable(statemachine_test
+        host_test/statemachine_test.cpp
+    )
+    target_link_libraries(statemachine_test
+        statemachine
         GTest::gtest_main
     )
 
     include(GoogleTest)
-    gtest_discover_tests(gatekeeper_test)
+    gtest_discover_tests(config_test)
+    gtest_discover_tests(statemachine_test)
 else()
     # ── ESP-IDF 빌드 ──
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)

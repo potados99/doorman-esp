@@ -9,9 +9,10 @@ ESP32 기반 사무실 도어락 자동 열림 장치.
 - Android / macOS: Classic Bluetooth SPP 페어링과 bonded BR/EDR 대상 directed probe가 더 유망하다.
 - ESP32: Wi-Fi + BLE + Classic 동시 사용을 전제로 `BTDM` 모드로 가져간다.
 
-현재 리포지토리는 완성품이 아니라, 다음 방향으로 가기 위한 초기 골격이다.
+현재 리포지토리는 완성품이 아니라, 최종 제품을 향해 단계적으로 구현 중이다.
 
-- `components/gatekeeper/`: 호스트 테스트 가능한 순수 C++ 도메인 로직 시작점
+- `components/statemachine/`: BT presence → 문열림 판단 상태머신 (순수 C++, 호스트 테스트)
+- `components/config/`: AppConfig 설정 구조체 + validate() (순수 C++)
 - `host_test/`: GTest 기반 호스트 테스트
 - `main/`: ESP-IDF 의존 진입점과 하드웨어 경계
 - `docs/`: 설계 브레인스토밍과 기능 플랜 문서
@@ -20,19 +21,18 @@ ESP32 기반 사무실 도어락 자동 열림 장치.
 
 지금 구현된 것은 많지 않다. README는 미래 희망사항이 아니라 현재 기준으로 적는다.
 
-- `main/`: SoftAP + HTTP OTA 업로드 경로는 동작하는 최소 구현이 들어가 있음
-- `main/bt_presence_poc.cpp`: BTDM dual-mode presence PoC 구현됨
+- `main/`: WiFi 프로비저닝 (SoftAP → STA), HTTP Basic Auth, 웹 문열기, OTA 업로드
+- `main/bt_presence_poc.cpp`: BTDM dual-mode presence PoC
   - 부팅 후 30초 pairing window
-  - BLE Heart Rate/Battery/Device Information persona로 iPhone pairing 유도
   - BLE bond 후 IRK 기반 RPA resolve
   - Classic SPP pairing + bonded BR/EDR remote-name probe
-- `frontend/index.html`: OTA 업로드용 단일 페이지 구현됨
-- `components/gatekeeper/`: `Gatekeeper::feed()` 골격만 존재
-- `host_test/gatekeeper_test.cpp`: 최소 GTest 스캐폴딩 존재
-- `partitions.csv`: 8MB flash 기준 OTA 파티션 레이아웃 정의
-- `docs/plans/2026-03-25-feat-softap-ota-upload-plan.md`: 현재 구현한 SoftAP + HTTP OTA의 기준 플랜
+- `components/statemachine/`: StateMachine — feed(mac, seen, now_ms) + tick(now_ms) API로 BT 감지 → Unlock 판정. 쿨다운, 타임아웃 로직 포함. 호스트 GTest 17개 통과.
+- `components/config/`: AppConfig 구조체 (cooldown_sec, presence_timeout_ms) + validate()
+- `frontend/`: index.html (STA 메인: 문열기/OTA/계정/WiFi) + setup.html (SoftAP 프로비저닝)
+- `scripts/ota_upload.sh`: MAC 기반 IP 탐색 + OTA 업로드 스크립트
+- `partitions.csv`: 8MB flash 기준 OTA 파티션 레이아웃
 
-즉, 개발용 OTA 경로와 Bluetooth bring-up PoC는 확보했고, 이제 핵심 앱 로직과 상태머신 쪽을 채워 넣는 단계다.
+즉, 개발 인프라(WiFi, OTA, 웹 제어)와 BT PoC, 핵심 상태머신이 확보됐고, 이제 BT와 StateMachine을 연결하는 단계다.
 
 ## 하드웨어 가정
 
@@ -216,21 +216,30 @@ ESP-IDF는 C 중심 생태계지만, 앱 레벨 로직까지 C로 쓸 이유는 
 
 ```text
 components/
-  gatekeeper/
-    include/gatekeeper.h
-    gatekeeper.cpp
+  statemachine/
+    include/statemachine.h
+    statemachine.cpp
+    CMakeLists.txt
+  config/
+    include/config.h
+    config.cpp
     CMakeLists.txt
 host_test/
-  gatekeeper_test.cpp
+  statemachine_test.cpp
+  config_test.cpp
 frontend/
   index.html
+  setup.html
 main/
   main.cpp
+  wifi.h / wifi.cpp
+  http_server.h / http_server.cpp
+  bt_presence_poc.h / bt_presence_poc.cpp
+  door_control.h / door_control.cpp
+  nvs_config.h / nvs_config.cpp
   CMakeLists.txt
-  wifi.h
-  wifi.cpp
-  http_server.h
-  http_server.cpp
+scripts/
+  ota_upload.sh
 docs/
   brainstorms/
   plans/
@@ -250,12 +259,14 @@ partitions.csv
 
 현재 기준 우선순위는 아래와 같다.
 
-1. BTDM dual-mode presence PoC 안정화
-2. Gatekeeper 상태머신 구체화
-3. Bluetooth presence와 Gatekeeper 연결
-4. GPIO 도어 트리거 연결
-5. 설정 저장과 웹 UI 확장
-6. GitHub Releases 폴링 기반 자동 OTA
+1. ~~SoftAP + OTA~~ ✅
+2. ~~BT presence PoC~~ ✅
+3. ~~WiFi 프로비저닝 + 웹 제어 + GPIO~~ ✅
+4. ~~AppConfig + StateMachine 상태머신~~ ✅
+5. bt_presence_poc → bt_manager 프로덕션화 + StateMachine 연결
+6. 웹 UI 탭 분리 + 기기 목록/상태 + WebSocket
+7. GitHub Releases 폴링 기반 자동 OTA
+8. 통합 테스트 + 실사무실 배포 + 1달 운영
 
 SoftAP + OTA는 운영용 기능이 아니라 `개발 편의용`이다.
 초회만 시리얼/JTAG로 올리고, 이후 반복 개발은 웹 업로드로 돌리는 흐름을 의도한다.
@@ -284,10 +295,12 @@ ctest --test-dir build-host
 
 ## 문서
 
-현재 참고할 설계 문서는 아래 두 개다.
+설계 문서는 `docs/` 아래에 있다.
 
-- `docs/brainstorms/2026-03-25-doorman-architecture-brainstorm.md`
-- `docs/plans/2026-03-25-feat-softap-ota-upload-plan.md`
+- `docs/brainstorms/2026-03-25-doorman-architecture-brainstorm.md` — 초기 아키텍처 방향
+- `docs/brainstorms/2026-03-27-mvp2-wifi-provisioning-web-brainstorm.md` — 2차 MVP
+- `docs/brainstorms/2026-03-29-final-product-spec-brainstorm.md` — 최종 제품 스펙 (정본)
+- `docs/plans/2026-03-29-feat-appconfig-gatekeeper-statemachine-plan.md` — 3차 구현 플랜
 
 브레인스토밍 문서는 방향을 잡는 데 쓰고, 실제 구현 전환은 플랜 문서를 기준으로 한다.
 
