@@ -5,7 +5,10 @@ idf_component_register(
         "http_server.cpp"
         "nvs_config.cpp"
         "door_control.cpp"
-        "bt_presence_poc.cpp"
+        "bt_manager.cpp"
+        "control_task.cpp"
+        "sm_task.cpp"
+        "config_service.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -14,6 +17,7 @@ idf_component_register(
         esp_event
         esp_http_server
         esp_netif
+        esp_ringbuf
         bt
         mbedtls
         esp_wifi

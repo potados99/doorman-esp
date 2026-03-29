@@ -1,14 +1,18 @@
 #include "http_server.h"
+#include "bt_manager.h"
+#include "control_task.h"
 #include "door_control.h"
 #include "nvs_config.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstring>
 
 #include <esp_log.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/ringbuf.h>
 #include <freertos/task.h>
 #include <mbedtls/base64.h>
 
@@ -80,7 +84,7 @@ unauthorized:
     return false;
 }
 
-// URL decode in-place: %20 → ' ', + → ' '
+// URL decode in-place: %20 -> ' ', + -> ' '
 static void url_decode(char *str) {
     char *src = str;
     char *dst = str;
@@ -110,6 +114,83 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
     }
     buf[received] = '\0';
     return received;
+}
+
+// ── WebSocket 로그 스트리밍 ──
+
+/**
+ * Ring Buffer: esp_log → WS 브리지.
+ *
+ * custom_vprintf가 모든 로그를 시리얼 + Ring Buffer에 동시 출력한다.
+ * WS sender 태스크가 Ring Buffer에서 읽어서 연결된 WS 클라이언트에 전송.
+ * 8KB면 약 50~100줄의 로그를 버퍼링 가능.
+ */
+static RingbufHandle_t s_log_ringbuf = nullptr;
+static vprintf_like_t s_original_vprintf = nullptr;
+static httpd_handle_t s_server = nullptr;
+static int s_ws_fd = -1;  /* 현재 연결된 WS 클라이언트 fd. -1이면 미연결. */
+
+/**
+ * 커스텀 vprintf: 시리얼 출력 + Ring Buffer 복사.
+ *
+ * esp_log_set_vprintf()로 등록되어 ESP_LOGx 매크로 호출 시 실행된다.
+ * Ring Buffer에 넣을 때 ISR 컨텍스트가 아니므로 xRingbufferSend 사용.
+ * Ring Buffer가 가득 차면 조용히 드랍 (WS 클라이언트가 없거나 느릴 때).
+ */
+static int custom_vprintf(const char *fmt, va_list args) {
+    /* 먼저 시리얼에 출력 — 원본 동작 유지 */
+    int ret = s_original_vprintf(fmt, args);
+
+    if (s_log_ringbuf != nullptr) {
+        char buf[256];
+        va_list args_copy;
+        va_copy(args_copy, args);
+        int len = vsnprintf(buf, sizeof(buf), fmt, args_copy);
+        va_end(args_copy);
+
+        if (len > 0) {
+            size_t send_len = (len < static_cast<int>(sizeof(buf))) ? len : sizeof(buf) - 1;
+            /* 0 timeout: 공간 없으면 즉시 드랍 */
+            xRingbufferSend(s_log_ringbuf, buf, send_len, 0);
+        }
+    }
+
+    return ret;
+}
+
+/**
+ * WS sender 태스크: Ring Buffer에서 로그를 읽어 WS 클라이언트에 전송.
+ *
+ * 100ms 주기로 Ring Buffer를 폴링하여 데이터가 있으면 WS frame으로 보낸다.
+ * httpd_ws_send_frame_async()를 사용하여 httpd 태스크와 동기화.
+ * WS 연결이 없으면 Ring Buffer 데이터를 소비만 하고 버린다.
+ */
+static void ws_sender_task(void *) {
+    while (true) {
+        size_t item_size = 0;
+        void *item = xRingbufferReceive(s_log_ringbuf, &item_size, pdMS_TO_TICKS(100));
+
+        if (item != nullptr && item_size > 0) {
+            int fd = s_ws_fd;
+            if (fd >= 0 && s_server != nullptr) {
+                httpd_ws_frame_t pkt = {};
+                pkt.type = HTTPD_WS_TYPE_TEXT;
+                pkt.payload = static_cast<uint8_t *>(item);
+                pkt.len = item_size;
+                pkt.final = true;
+
+                esp_err_t err = httpd_ws_send_frame_async(s_server, fd, &pkt);
+                if (err != ESP_OK) {
+                    /**
+                     * 전송 실패 시 WS 연결이 끊어진 것으로 간주.
+                     * 다음 WS 연결 시 s_ws_fd가 새로 설정된다.
+                     */
+                    s_ws_fd = -1;
+                }
+            }
+            vRingbufferReturnItem(s_log_ringbuf, item);
+        }
+    }
 }
 
 // ── SoftAP Handlers ──
@@ -151,10 +232,12 @@ static esp_err_t index_page_handler(httpd_req_t *req) {
 static esp_err_t door_open_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    if (door_trigger_pulse()) {
-        return send_text(req, "200 OK", "OK");
-    }
-    return send_text(req, "409 Conflict", "Already in progress");
+    /**
+     * 이전: door_trigger_pulse() 직접 호출
+     * 이후: Control Task 큐를 통해 간접 호출하여 SM Task 명령과 직렬화
+     */
+    control_queue_send(ControlCommand::ManualUnlock);
+    return send_text(req, "200 OK", "OK");
 }
 
 static esp_err_t auth_update_handler(httpd_req_t *req) {
@@ -313,12 +396,55 @@ cleanup:
     return result == ESP_OK ? ESP_FAIL : result;
 }
 
+/** 페어링 시작 핸들러. 웹 UI에서 호출하여 30초 페어링 윈도우를 연다. */
+static esp_err_t pairing_start_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    bt_request_pairing();
+    return send_text(req, "200 OK", "Pairing started (30s window)");
+}
+
+/**
+ * WebSocket 핸들러.
+ *
+ * 연결 시: s_ws_fd에 소켓 fd를 저장하여 ws_sender_task가 전송할 수 있게 한다.
+ * 데이터 수신: 클라이언트 → 서버 메시지는 무시 (로그 스트리밍은 서버 → 클라이언트 단방향).
+ * 연결 종료: httpd가 내부적으로 처리. s_ws_fd는 send 실패 시 -1로 리셋.
+ */
+static esp_err_t ws_handler(httpd_req_t *req) {
+    if (req->method == HTTP_GET) {
+        /* WebSocket 핸드셰이크 완료 시점 */
+        s_ws_fd = httpd_req_to_sockfd(req);
+        ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", s_ws_fd);
+        return ESP_OK;
+    }
+
+    /* 클라이언트에서 데이터가 오면 읽어서 버린다 (단방향 스트리밍) */
+    httpd_ws_frame_t pkt = {};
+    pkt.type = HTTPD_WS_TYPE_TEXT;
+    esp_err_t ret = httpd_ws_recv_frame(req, &pkt, 0);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    /* payload가 있다면 무시 */
+    if (pkt.len > 0) {
+        uint8_t *buf = static_cast<uint8_t *>(malloc(pkt.len));
+        if (buf) {
+            pkt.payload = buf;
+            httpd_ws_recv_frame(req, &pkt, pkt.len);
+            free(buf);
+        }
+    }
+    return ESP_OK;
+}
+
 // ── Registration helpers ──
 
 struct Route {
     const char *uri;
     httpd_method_t method;
     esp_err_t (*handler)(httpd_req_t *);
+    bool is_websocket;
 };
 
 static bool register_routes(httpd_handle_t server, const Route *routes, size_t count) {
@@ -327,6 +453,7 @@ static bool register_routes(httpd_handle_t server, const Route *routes, size_t c
         desc.uri = routes[i].uri;
         desc.method = routes[i].method;
         desc.handler = routes[i].handler;
+        desc.is_websocket = routes[i].is_websocket;
         if (httpd_register_uri_handler(server, &desc) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to register %s", routes[i].uri);
             httpd_stop(server);
@@ -336,6 +463,33 @@ static bool register_routes(httpd_handle_t server, const Route *routes, size_t c
     return true;
 }
 
+// ── Log streaming 초기화 ──
+
+/**
+ * Ring Buffer + WS sender 태스크를 생성하고 esp_log를 후킹한다.
+ * STA 모드에서만 호출 — SoftAP에서는 로그 스트리밍 불필요.
+ */
+static void init_log_streaming() {
+    s_log_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
+    if (s_log_ringbuf == nullptr) {
+        ESP_LOGE(TAG, "Failed to create log ring buffer");
+        return;
+    }
+
+    s_original_vprintf = esp_log_set_vprintf(custom_vprintf);
+
+    xTaskCreatePinnedToCore(
+        ws_sender_task,
+        "ws_log",
+        3072,
+        nullptr,
+        3,  /* 로그 전송은 낮은 우선순위 */
+        nullptr,
+        tskNO_AFFINITY);
+
+    ESP_LOGI(TAG, "WebSocket log streaming initialized");
+}
+
 // ── Public API ──
 
 httpd_handle_t start_webserver(WifiMode mode) {
@@ -343,7 +497,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 12;
 
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -355,19 +509,25 @@ httpd_handle_t start_webserver(WifiMode mode) {
 
     if (mode == WifiMode::SoftAP) {
         static const Route softap_routes[] = {
-            {"/",               HTTP_GET,  setup_page_handler},
-            {"/api/wifi/setup", HTTP_POST, wifi_setup_handler},
+            {"/",               HTTP_GET,  setup_page_handler, false},
+            {"/api/wifi/setup", HTTP_POST, wifi_setup_handler, false},
         };
         ok = register_routes(server, softap_routes, 2);
     } else {
         static const Route sta_routes[] = {
-            {"/",                    HTTP_GET,  index_page_handler},
-            {"/api/door/open",       HTTP_POST, door_open_handler},
-            {"/api/firmware/upload",  HTTP_POST, ota_upload_handler},
-            {"/api/auth/update",     HTTP_POST, auth_update_handler},
-            {"/api/wifi/update",     HTTP_POST, wifi_update_handler},
+            {"/",                      HTTP_GET,  index_page_handler,   false},
+            {"/api/door/open",         HTTP_POST, door_open_handler,    false},
+            {"/api/firmware/upload",   HTTP_POST, ota_upload_handler,   false},
+            {"/api/auth/update",       HTTP_POST, auth_update_handler,  false},
+            {"/api/wifi/update",       HTTP_POST, wifi_update_handler,  false},
+            {"/api/pairing/start",     HTTP_POST, pairing_start_handler, false},
+            {"/ws",                    HTTP_GET,  ws_handler,           true},
         };
-        ok = register_routes(server, sta_routes, 5);
+        ok = register_routes(server, sta_routes, 7);
+
+        /* STA 모드에서만 로그 스트리밍 활성화 */
+        s_server = server;
+        init_log_streaming();
     }
 
     if (!ok) return nullptr;

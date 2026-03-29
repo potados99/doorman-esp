@@ -1,6 +1,9 @@
-#include "bt_presence_poc.h"
+#include "bt_manager.h"
+#include "config_service.h"
+#include "control_task.h"
 #include "door_control.h"
 #include "http_server.h"
+#include "sm_task.h"
 #include "wifi.h"
 
 #include <esp_log.h>
@@ -19,16 +22,27 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "Starting Doorman...");
 
+    // AppConfig 서비스 초기화 (NVS에서 cooldown/timeout 로드)
+    config_service_init();
+
+    // GPIO 설정
     door_control_init();
 
     // WiFi: NVS 크레덴셜 확인 → STA 시도 → 실패 시 SoftAP 폴백
     WifiMode mode = wifi_start();
 
-    // 모드에 따라 다른 웹서버 구성
+    // 모드에 따라 다른 웹서버 구성 (STA에서 WS 로그 스트리밍 포함)
     start_webserver(mode);
 
-    // BT presence PoC (WiFi 모드와 무관하게 동작)
-    ESP_ERROR_CHECK(bt_presence_poc_start());
+    // Control 태스크: GPIO 펄스 명령을 큐로 직렬화
+    control_task_start();
+
+    // SM 태스크: StateMachine 소유, BT 이벤트 처리 → Unlock 판단
+    AppConfig cfg = app_config_get();
+    sm_task_start(cfg);
+
+    // BT Manager: 듀얼모드 presence 감지 + 페어링 (부팅 시 30초 윈도우)
+    ESP_ERROR_CHECK(bt_manager_start());
 
     if (mode == WifiMode::STA) {
         ESP_LOGI(TAG, "Ready (STA mode). Visit http://doorman.local");

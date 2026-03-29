@@ -1,4 +1,5 @@
-#include "bt_presence_poc.h"
+#include "bt_manager.h"
+#include "sm_task.h"
 
 #include <array>
 #include <atomic>
@@ -6,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "aes/esp_aes.h"
 #include "esp_bt.h"
 #include "esp_bt_device.h"
 #include "esp_bt_main.h"
@@ -17,12 +19,14 @@
 #include "esp_log.h"
 #include "esp_spp_api.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
-#include "aes/esp_aes.h"
 
 namespace {
 
-constexpr char kTag[] = "bt_poc";
+// ── 상수 ──
+
+constexpr char kTag[] = "bt";
 constexpr char kBleDeviceName[] = "Doorman";
 constexpr char kBleManufacturerName[] = "Potados";
 constexpr char kBleModelNumber[] = "Doorman";
@@ -34,8 +38,6 @@ constexpr uint32_t kBleFixedPasskey = 123456;
 constexpr TickType_t kPairingWindow = pdMS_TO_TICKS(30000);
 constexpr TickType_t kPairingLogInterval = pdMS_TO_TICKS(5000);
 constexpr TickType_t kLoopDelay = pdMS_TO_TICKS(100);
-constexpr TickType_t kBlePresenceTimeout = pdMS_TO_TICKS(3000);
-constexpr TickType_t kClassicPresenceTimeout = pdMS_TO_TICKS(5000);
 constexpr TickType_t kClassicProbeRetryDelay = pdMS_TO_TICKS(200);
 constexpr int kMaxBleBondedDevices = 15;
 constexpr int kMaxClassicBondedDevices = 15;
@@ -48,9 +50,20 @@ constexpr esp_spp_role_t kSppRole = ESP_SPP_ROLE_SLAVE;
 
 constexpr uint8_t kBleAdvFlags = ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT;
 
+// ── 페어링 큐 메시지 ──
+
+enum class PairingCmd { StartPairing };
+
+/**
+ * 페어링 큐: HTTP 핸들러 → BT 태스크.
+ * 깊이 1이면 충분 — 중복 요청은 무의미.
+ */
+static QueueHandle_t s_pairing_queue = nullptr;
+
+// ── BLE Advertising 데이터 (컴파일 타임 구성) ──
+
 template <size_t N>
-constexpr std::array<uint8_t, N + 12> make_ble_adv_raw_data(const char (&name)[N])
-{
+constexpr std::array<uint8_t, N + 12> make_ble_adv_raw_data(const char (&name)[N]) {
     std::array<uint8_t, N + 12> data = {};
     size_t pos = 0;
 
@@ -78,8 +91,7 @@ constexpr std::array<uint8_t, N + 12> make_ble_adv_raw_data(const char (&name)[N
 }
 
 template <size_t N>
-constexpr std::array<uint8_t, N + 13> make_ble_scan_rsp_raw_data(const char (&name)[N])
-{
+constexpr std::array<uint8_t, N + 13> make_ble_scan_rsp_raw_data(const char (&name)[N]) {
     std::array<uint8_t, N + 13> data = {};
     size_t pos = 0;
 
@@ -106,36 +118,25 @@ constexpr std::array<uint8_t, N + 13> make_ble_scan_rsp_raw_data(const char (&na
     return data;
 }
 
+// ── GATT 서비스 인덱스 ──
+
 enum HrsIndex {
-    kHrsSvc,
-    kHrsMeasChar,
-    kHrsMeasVal,
-    kHrsMeasCfg,
-    kHrsBodySensorChar,
-    kHrsBodySensorVal,
-    kHrsCtrlPointChar,
-    kHrsCtrlPointVal,
-    kHrsCount,
+    kHrsSvc, kHrsMeasChar, kHrsMeasVal, kHrsMeasCfg,
+    kHrsBodySensorChar, kHrsBodySensorVal,
+    kHrsCtrlPointChar, kHrsCtrlPointVal, kHrsCount,
 };
 
 enum BasIndex {
-    kBasSvc,
-    kBasLevelChar,
-    kBasLevelVal,
-    kBasLevelCfg,
-    kBasCount,
+    kBasSvc, kBasLevelChar, kBasLevelVal, kBasLevelCfg, kBasCount,
 };
 
 enum DisIndex {
-    kDisSvc,
-    kDisManufacturerChar,
-    kDisManufacturerVal,
-    kDisModelChar,
-    kDisModelVal,
-    kDisFirmwareChar,
-    kDisFirmwareVal,
-    kDisCount,
+    kDisSvc, kDisManufacturerChar, kDisManufacturerVal,
+    kDisModelChar, kDisModelVal,
+    kDisFirmwareChar, kDisFirmwareVal, kDisCount,
 };
+
+// ── BLE Peer / Classic Peer 구조체 ──
 
 struct BlePeer {
     bool valid;
@@ -155,6 +156,8 @@ struct ClassicPeer {
     char last_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 };
 
+// ── 전역 상태 (spinlock으로 보호) ──
+
 portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t s_presence_task_handle = nullptr;
 TickType_t s_pairing_deadline = 0;
@@ -171,6 +174,8 @@ BlePeer s_ble_peers[kMaxBleBondedDevices] = {};
 ClassicPeer s_classic_peers[kMaxClassicBondedDevices] = {};
 int s_ble_peer_count = 0;
 int s_classic_peer_count = 0;
+
+// ── GATT 핸들 테이블 및 값 ──
 
 uint16_t s_hrs_handle_table[kHrsCount] = {};
 uint16_t s_bas_handle_table[kBasCount] = {};
@@ -224,140 +229,100 @@ esp_ble_scan_params_t s_ble_scan_params = {
     .scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE,
 };
 
+// ── GATT 어트리뷰트 테이블 (PoC와 동일) ──
+
 const esp_gatts_attr_db_t s_heart_rate_gatt_db[kHrsCount] = {
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint16_t), sizeof(kHeartRateServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateServiceUuid))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropNotify), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropNotify))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateMeasUuid)), ESP_GATT_PERM_READ,
-         sizeof(s_heart_measurement_val), sizeof(s_heart_measurement_val), s_heart_measurement_val},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicConfigUuid)),
-         ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, sizeof(uint16_t), sizeof(s_heart_measurement_ccc), s_heart_measurement_ccc},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBodySensorLocationUuid)),
-         ESP_GATT_PERM_READ_ENCRYPTED, sizeof(s_body_sensor_loc_val), sizeof(s_body_sensor_loc_val), s_body_sensor_loc_val},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropReadWrite), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropReadWrite))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateCtrlPointUuid)),
-         ESP_GATT_PERM_READ_ENCRYPTED | ESP_GATT_PERM_WRITE_ENCRYPTED,
-         sizeof(s_heart_ctrl_point), sizeof(s_heart_ctrl_point), s_heart_ctrl_point},
-    },
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint16_t), sizeof(kHeartRateServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateServiceUuid))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropNotify), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropNotify))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateMeasUuid)), ESP_GATT_PERM_READ,
+      sizeof(s_heart_measurement_val), sizeof(s_heart_measurement_val), s_heart_measurement_val}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicConfigUuid)),
+      ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, sizeof(uint16_t), sizeof(s_heart_measurement_ccc), s_heart_measurement_ccc}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBodySensorLocationUuid)),
+      ESP_GATT_PERM_READ_ENCRYPTED, sizeof(s_body_sensor_loc_val), sizeof(s_body_sensor_loc_val), s_body_sensor_loc_val}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropReadWrite), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropReadWrite))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kHeartRateCtrlPointUuid)),
+      ESP_GATT_PERM_READ_ENCRYPTED | ESP_GATT_PERM_WRITE_ENCRYPTED,
+      sizeof(s_heart_ctrl_point), sizeof(s_heart_ctrl_point), s_heart_ctrl_point}},
 };
 
 const esp_gatts_attr_db_t s_battery_gatt_db[kBasCount] = {
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint16_t), sizeof(kBatteryServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBatteryServiceUuid))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropReadNotify), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropReadNotify))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBatteryLevelUuid)), ESP_GATT_PERM_READ,
-         sizeof(s_battery_level_val), sizeof(s_battery_level_val), s_battery_level_val},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicConfigUuid)),
-         ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, sizeof(uint16_t), sizeof(s_battery_level_ccc), s_battery_level_ccc},
-    },
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint16_t), sizeof(kBatteryServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBatteryServiceUuid))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropReadNotify), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropReadNotify))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kBatteryLevelUuid)), ESP_GATT_PERM_READ,
+      sizeof(s_battery_level_val), sizeof(s_battery_level_val), s_battery_level_val}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicConfigUuid)),
+      ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, sizeof(uint16_t), sizeof(s_battery_level_ccc), s_battery_level_ccc}},
 };
 
 const esp_gatts_attr_db_t s_device_info_gatt_db[kDisCount] = {
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint16_t), sizeof(kDeviceInfoServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kDeviceInfoServiceUuid))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kManufacturerNameUuid)), ESP_GATT_PERM_READ,
-         sizeof(kBleManufacturerName) - 1, sizeof(kBleManufacturerName) - 1,
-         reinterpret_cast<uint8_t *>(const_cast<char *>(kBleManufacturerName))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kModelNumberUuid)), ESP_GATT_PERM_READ,
-         sizeof(kBleModelNumber) - 1, sizeof(kBleModelNumber) - 1,
-         reinterpret_cast<uint8_t *>(const_cast<char *>(kBleModelNumber))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
-         sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))},
-    },
-    {
-        {ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kFirmwareVersionUuid)), ESP_GATT_PERM_READ,
-         sizeof(kBleFirmwareVersion) - 1, sizeof(kBleFirmwareVersion) - 1,
-         reinterpret_cast<uint8_t *>(const_cast<char *>(kBleFirmwareVersion))},
-    },
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kPrimaryServiceUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint16_t), sizeof(kDeviceInfoServiceUuid), reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kDeviceInfoServiceUuid))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kManufacturerNameUuid)), ESP_GATT_PERM_READ,
+      sizeof(kBleManufacturerName) - 1, sizeof(kBleManufacturerName) - 1,
+      reinterpret_cast<uint8_t *>(const_cast<char *>(kBleManufacturerName))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kModelNumberUuid)), ESP_GATT_PERM_READ,
+      sizeof(kBleModelNumber) - 1, sizeof(kBleModelNumber) - 1,
+      reinterpret_cast<uint8_t *>(const_cast<char *>(kBleModelNumber))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kCharacteristicDeclUuid)), ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(kCharPropRead), reinterpret_cast<uint8_t *>(const_cast<uint8_t *>(&kCharPropRead))}},
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, reinterpret_cast<uint8_t *>(const_cast<uint16_t *>(&kFirmwareVersionUuid)), ESP_GATT_PERM_READ,
+      sizeof(kBleFirmwareVersion) - 1, sizeof(kBleFirmwareVersion) - 1,
+      reinterpret_cast<uint8_t *>(const_cast<char *>(kBleFirmwareVersion))}},
 };
 
-char *bda_to_str(const uint8_t *bda, char *str, size_t size)
-{
+// ── 유틸리티 ──
+
+char *bda_to_str(const uint8_t *bda, char *str, size_t size) {
     if (bda == nullptr || str == nullptr || size < 18) {
         return nullptr;
     }
-
-    std::snprintf(
-        str,
-        size,
-        "%02x:%02x:%02x:%02x:%02x:%02x",
-        bda[0],
-        bda[1],
-        bda[2],
-        bda[3],
-        bda[4],
-        bda[5]);
+    std::snprintf(str, size, "%02x:%02x:%02x:%02x:%02x:%02x",
+                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
     return str;
 }
 
-bool is_resolvable_private_address(const uint8_t *addr)
-{
+bool is_resolvable_private_address(const uint8_t *addr) {
     return addr != nullptr && ((addr[0] & 0xC0U) == 0x40U);
 }
 
-bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16])
-{
+/**
+ * RPA(Resolvable Private Address)를 IRK(Identity Resolving Key)로 해석한다.
+ *
+ * BLE 본딩된 기기는 프라이버시 보호를 위해 매번 다른 MAC(RPA)을 사용하므로,
+ * 본딩 시 교환한 IRK로 AES-128 연산을 수행하여 RPA의 실제 소유자를 확인해야 한다.
+ */
+bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16]) {
     if (!is_resolvable_private_address(rpa)) {
         return false;
     }
@@ -378,7 +343,6 @@ bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16])
         for (int i = 0; i < 16; ++i) {
             reversed[i] = ciphertext[15 - i];
         }
-
         matched = reversed[0] == rpa[5] &&
                   reversed[1] == rpa[4] &&
                   reversed[2] == rpa[3];
@@ -388,8 +352,16 @@ bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16])
     return matched;
 }
 
-void refresh_ble_bond_cache()
-{
+// ── Bond 캐시 관리 ──
+
+/**
+ * BLE 본딩 목록을 ESP-IDF BT 스택에서 읽어와 s_ble_peers에 캐싱한다.
+ *
+ * 각 본딩된 기기의 identity address와 IRK를 추출한다.
+ * IRK가 있으면 RPA resolve에 사용하고, 없으면 고정 주소로 직접 비교한다.
+ * IRK 바이트 순서는 ESP-IDF와 BLE 표준 간 endianness가 다르므로 역전이 필요.
+ */
+void refresh_ble_bond_cache() {
     int dev_num = esp_ble_get_bond_device_num();
     if (dev_num > kMaxBleBondedDevices) {
         dev_num = kMaxBleBondedDevices;
@@ -428,18 +400,14 @@ void refresh_ble_bond_cache()
     ESP_LOGI(kTag, "BLE bonded peers: %d", dev_num);
     for (int i = 0; i < dev_num; ++i) {
         char addr_str[18] = {};
-        ESP_LOGI(
-            kTag,
-            "  BLE[%d] %s addr_type=%u id_key=%s",
-            i,
-            bda_to_str(s_ble_peers[i].identity_addr, addr_str, sizeof(addr_str)),
-            s_ble_peers[i].identity_addr_type,
-            s_ble_peers[i].has_identity_key ? "yes" : "no");
+        ESP_LOGI(kTag, "  BLE[%d] %s addr_type=%u id_key=%s",
+                 i, bda_to_str(s_ble_peers[i].identity_addr, addr_str, sizeof(addr_str)),
+                 s_ble_peers[i].identity_addr_type,
+                 s_ble_peers[i].has_identity_key ? "yes" : "no");
     }
 }
 
-void refresh_classic_bond_cache()
-{
+void refresh_classic_bond_cache() {
     int dev_num = esp_bt_gap_get_bond_device_num();
     if (dev_num > kMaxClassicBondedDevices) {
         dev_num = kMaxClassicBondedDevices;
@@ -470,24 +438,32 @@ void refresh_classic_bond_cache()
     }
 }
 
-void configure_ble_advertising()
-{
+// ── BLE Advertising / Scanning 제어 ──
+
+void configure_ble_advertising() {
     s_ble_adv_config_mask = 0x03;
 
-    esp_err_t err = esp_ble_gap_config_adv_data_raw(const_cast<uint8_t *>(s_ble_adv_raw_data.data()), s_ble_adv_raw_data.size());
+    esp_err_t err = esp_ble_gap_config_adv_data_raw(
+        const_cast<uint8_t *>(s_ble_adv_raw_data.data()), s_ble_adv_raw_data.size());
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "Failed to configure BLE raw advertising data: %s", esp_err_to_name(err));
         return;
     }
 
-    err = esp_ble_gap_config_scan_rsp_data_raw(const_cast<uint8_t *>(s_ble_scan_rsp_raw_data.data()), s_ble_scan_rsp_raw_data.size());
+    err = esp_ble_gap_config_scan_rsp_data_raw(
+        const_cast<uint8_t *>(s_ble_scan_rsp_raw_data.data()), s_ble_scan_rsp_raw_data.size());
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "Failed to configure BLE raw scan response data: %s", esp_err_to_name(err));
     }
 }
 
-void request_ble_scan_mode()
-{
+/**
+ * BLE 스캔 모드로 전환을 요청한다.
+ *
+ * advertising 중이면 먼저 stop → stop 완료 콜백에서 scan params 설정 → scan 시작.
+ * 이 비동기 체인은 BLE GAP 콜백에서 처리된다.
+ */
+void request_ble_scan_mode() {
     if (s_ble_scanning.load()) {
         return;
     }
@@ -512,13 +488,48 @@ void request_ble_scan_mode()
     }
 }
 
-void close_pairing_window()
-{
+// ── 페어링 윈도우 관리 ──
+
+/**
+ * 페어링 윈도우를 연다. BT 태스크 내부에서 호출.
+ * 이미 페어링 중이면 무시.
+ */
+void open_pairing_window() {
+    if (s_pairing_mode.load()) {
+        ESP_LOGW(kTag, "Pairing already active — ignoring request");
+        return;
+    }
+
+    s_pairing_mode.store(true);
+    s_pairing_deadline = xTaskGetTickCount() + kPairingWindow;
+
+    /* BLE: 스캔 중지 → advertising 시작 */
+    if (s_ble_scanning.load()) {
+        esp_ble_gap_stop_scanning();
+    }
+    s_ble_scan_requested.store(false);
+
+    if (s_ble_local_privacy_ready.load()) {
+        configure_ble_advertising();
+    }
+
+    /* Classic: connectable + discoverable */
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+
+    ESP_LOGI(kTag, "Pairing window opened (30s). BLE='%s', Classic='%s'",
+             kBleDeviceName, kClassicDeviceName);
+}
+
+/**
+ * 페어링 윈도우를 닫고 스캔 모드로 전환한다.
+ * 30초 경과 시 presence_task에서 호출.
+ */
+void close_pairing_window() {
     if (!s_pairing_mode.exchange(false)) {
         return;
     }
 
-    ESP_LOGI(kTag, "Initial 30s pairing window ended. Switching to scan/probe mode");
+    ESP_LOGI(kTag, "Pairing window closed. Switching to scan/probe mode");
 
     esp_err_t classic_err = esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
     if (classic_err != ESP_OK) {
@@ -533,15 +544,21 @@ void close_pairing_window()
     request_ble_scan_mode();
 }
 
-void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param &scan_rst)
-{
+// ── Presence 갱신 (감지 이벤트 → SM Task 전달) ──
+
+/**
+ * BLE 스캔 결과에서 본딩된 기기를 식별하고 SM Task에 피드한다.
+ *
+ * RPA resolve 성공 = 감지됨 → sm_feed_queue_send(mac, true, now_ms)
+ * 해당 기기의 identity address를 MAC으로 사용하여
+ * StateMachine이 기기를 일관되게 추적할 수 있도록 한다.
+ */
+void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param &scan_rst) {
     int matched_index = -1;
 
     taskENTER_CRITICAL(&s_state_lock);
     for (int i = 0; i < s_ble_peer_count; ++i) {
-        if (!s_ble_peers[i].valid) {
-            continue;
-        }
+        if (!s_ble_peers[i].valid) continue;
 
         bool matched = std::memcmp(scan_rst.bda, s_ble_peers[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
         if (!matched && s_ble_peers[i].has_identity_key) {
@@ -560,36 +577,48 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
 
     if (matched_index >= 0) {
         char identity_str[18] = {};
-        char adv_str[18] = {};
-        uint8_t adv_name_len = 0;
-        uint8_t *adv_name = esp_ble_resolve_adv_data_by_type(
-            const_cast<uint8_t *>(scan_rst.ble_adv),
-            scan_rst.adv_data_len + scan_rst.scan_rsp_len,
-            ESP_BLE_AD_TYPE_NAME_CMPL,
-            &adv_name_len);
-        if (adv_name == nullptr) {
-            adv_name = esp_ble_resolve_adv_data_by_type(
-                const_cast<uint8_t *>(scan_rst.ble_adv),
-                scan_rst.adv_data_len + scan_rst.scan_rsp_len,
-                ESP_BLE_AD_TYPE_NAME_SHORT,
-                &adv_name_len);
-        }
+        bda_to_str(s_ble_peers[matched_index].identity_addr, identity_str, sizeof(identity_str));
 
-        ESP_LOGI(
-            kTag,
-            "BLE present peer[%d] id=%s adv=%s addr_type=%u rssi=%d name=%.*s",
-            matched_index,
-            bda_to_str(s_ble_peers[matched_index].identity_addr, identity_str, sizeof(identity_str)),
-            bda_to_str(scan_rst.bda, adv_str, sizeof(adv_str)),
-            scan_rst.ble_addr_type,
-            scan_rst.rssi,
-            adv_name_len,
-            adv_name != nullptr ? reinterpret_cast<const char *>(adv_name) : "");
+        ESP_LOGI(kTag, "BLE present peer[%d] id=%s rssi=%d",
+                 matched_index, identity_str, scan_rst.rssi);
+
+        /* SM Task에 감지 이벤트 전달 */
+        uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        sm_feed_queue_send(
+            reinterpret_cast<const uint8_t(&)[6]>(s_ble_peers[matched_index].identity_addr),
+            true, now_ms);
     }
 }
 
-void maybe_start_classic_probe()
-{
+/**
+ * Classic remote_name probe 성공 시 presence 갱신 및 SM Task 피드.
+ * probe 실패 시도 SM Task에 seen=false로 피드한다.
+ */
+void update_classic_presence(const uint8_t *bda, const uint8_t *name) {
+    taskENTER_CRITICAL(&s_state_lock);
+    for (int i = 0; i < s_classic_peer_count; ++i) {
+        if (!s_classic_peers[i].valid) continue;
+
+        if (std::memcmp(bda, s_classic_peers[i].bda, ESP_BD_ADDR_LEN) == 0) {
+            s_classic_peers[i].last_seen_tick = xTaskGetTickCount();
+            if (name != nullptr) {
+                std::snprintf(s_classic_peers[i].last_name,
+                              sizeof(s_classic_peers[i].last_name),
+                              "%s", reinterpret_cast<const char *>(name));
+            }
+            break;
+        }
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+}
+
+/**
+ * Classic 본딩된 기기에 대해 round-robin으로 remote_name probe를 시작한다.
+ *
+ * probe 성공/실패는 classic_gap_callback에서 처리되며,
+ * 한 번에 하나의 probe만 실행한다 (s_classic_probe_in_flight).
+ */
+void maybe_start_classic_probe() {
     if (s_pairing_mode.load() || s_classic_probe_in_flight.load()) {
         return;
     }
@@ -624,49 +653,43 @@ void maybe_start_classic_probe()
     }
 }
 
-void update_classic_presence(const uint8_t *bda, const uint8_t *name)
-{
-    taskENTER_CRITICAL(&s_state_lock);
-    for (int i = 0; i < s_classic_peer_count; ++i) {
-        if (!s_classic_peers[i].valid) {
-            continue;
-        }
+// ── Presence 태스크 ──
 
-        if (std::memcmp(bda, s_classic_peers[i].bda, ESP_BD_ADDR_LEN) == 0) {
-            s_classic_peers[i].last_seen_tick = xTaskGetTickCount();
-            if (name != nullptr) {
-                std::snprintf(
-                    s_classic_peers[i].last_name,
-                    sizeof(s_classic_peers[i].last_name),
-                    "%s",
-                    reinterpret_cast<const char *>(name));
-            }
-            break;
-        }
-    }
-    taskEXIT_CRITICAL(&s_state_lock);
-}
-
-void presence_task(void *arg)
-{
+/**
+ * BT presence 태스크 메인 루프.
+ *
+ * 두 가지 모드로 동작한다:
+ * 1. 페어링 모드: 타이머 확인, 로그 출력, 페어링 큐 확인
+ * 2. 스캔 모드: Classic probe 주기 실행
+ *
+ * BLE 스캔은 콜백 기반이므로 이 루프에서 별도 처리 없이
+ * ble_gap_callback에서 직접 update_ble_presence()를 호출한다.
+ */
+void presence_task(void *) {
     TickType_t last_pairing_log = 0;
     TickType_t last_classic_probe = 0;
 
     while (true) {
         TickType_t now = xTaskGetTickCount();
 
+        /* 페어링 큐 확인: HTTP에서 온 페어링 요청 처리 */
+        PairingCmd cmd;
+        if (xQueueReceive(s_pairing_queue, &cmd, 0) == pdTRUE) {
+            open_pairing_window();
+        }
+
         if (s_pairing_mode.load()) {
             if (now >= s_pairing_deadline) {
                 close_pairing_window();
+
+                /* 페어링 종료 직후 bond 캐시 갱신 */
+                refresh_ble_bond_cache();
+                refresh_classic_bond_cache();
             } else if (now - last_pairing_log >= kPairingLogInterval) {
                 last_pairing_log = now;
                 uint32_t remaining_ms = (s_pairing_deadline - now) * portTICK_PERIOD_MS;
-                ESP_LOGI(
-                    kTag,
-                    "Pairing mode active for %u ms more. BLE='%s', Classic='%s'",
-                    remaining_ms,
-                    kBleDeviceName,
-                    kClassicDeviceName);
+                ESP_LOGI(kTag, "Pairing mode active for %lu ms more. BLE='%s', Classic='%s'",
+                         (unsigned long)remaining_ms, kBleDeviceName, kClassicDeviceName);
             }
         } else {
             if (now - last_classic_probe >= kClassicProbeRetryDelay) {
@@ -679,18 +702,17 @@ void presence_task(void *arg)
     }
 }
 
-void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
-{
+// ── Classic GAP 콜백 ──
+
+void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
     char addr_str[18] = {};
 
     switch (event) {
     case ESP_BT_GAP_AUTH_CMPL_EVT:
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI(
-                kTag,
-                "Classic auth success: %s [%s]",
-                reinterpret_cast<const char *>(param->auth_cmpl.device_name),
-                bda_to_str(param->auth_cmpl.bda, addr_str, sizeof(addr_str)));
+            ESP_LOGI(kTag, "Classic auth success: %s [%s]",
+                     reinterpret_cast<const char *>(param->auth_cmpl.device_name),
+                     bda_to_str(param->auth_cmpl.bda, addr_str, sizeof(addr_str)));
             refresh_classic_bond_cache();
         } else {
             ESP_LOGE(kTag, "Classic auth failed: status=%d", param->auth_cmpl.stat);
@@ -699,7 +721,8 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 
     case ESP_BT_GAP_PIN_REQ_EVT: {
         esp_bt_pin_code_t pin_code = {'1', '2', '3', '4'};
-        ESP_LOGI(kTag, "Classic PIN requested by %s, replying with 1234", bda_to_str(param->pin_req.bda, addr_str, sizeof(addr_str)));
+        ESP_LOGI(kTag, "Classic PIN requested by %s, replying with 1234",
+                 bda_to_str(param->pin_req.bda, addr_str, sizeof(addr_str)));
         ESP_ERROR_CHECK(esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code));
         break;
     }
@@ -721,11 +744,31 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         s_classic_probe_in_flight.store(false);
         if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
             update_classic_presence(param->read_rmt_name.bda, param->read_rmt_name.rmt_name);
-            ESP_LOGI(
-                kTag,
-                "Classic present: %s name=%s",
-                bda_to_str(param->read_rmt_name.bda, addr_str, sizeof(addr_str)),
-                reinterpret_cast<const char *>(param->read_rmt_name.rmt_name));
+
+            char name_addr_str[18] = {};
+            ESP_LOGI(kTag, "Classic present: %s name=%s",
+                     bda_to_str(param->read_rmt_name.bda, name_addr_str, sizeof(name_addr_str)),
+                     reinterpret_cast<const char *>(param->read_rmt_name.rmt_name));
+
+            /* SM Task에 감지 이벤트 전달 */
+            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            sm_feed_queue_send(
+                reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
+                true, now_ms);
+        } else {
+            /**
+             * probe 실패 = 기기가 응답하지 않음 = 미감지.
+             * Classic은 BLE와 달리 명시적 실패가 있으므로
+             * 즉시 seen=false를 SM에 전달한다.
+             */
+            char fail_addr_str[18] = {};
+            ESP_LOGI(kTag, "Classic absent: %s",
+                     bda_to_str(param->read_rmt_name.bda, fail_addr_str, sizeof(fail_addr_str)));
+
+            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            sm_feed_queue_send(
+                reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
+                false, now_ms);
         }
         break;
 
@@ -734,8 +777,9 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
     }
 }
 
-void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
-{
+// ── SPP 콜백 ──
+
+void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
     char addr_str[18] = {};
 
     switch (event) {
@@ -761,15 +805,14 @@ void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
 
     case ESP_SPP_SRV_OPEN_EVT:
-        ESP_LOGI(
-            kTag,
-            "SPP connection opened: %s handle=%" PRIu32,
-            bda_to_str(param->srv_open.rem_bda, addr_str, sizeof(addr_str)),
-            param->srv_open.handle);
+        ESP_LOGI(kTag, "SPP connection opened: %s handle=%" PRIu32,
+                 bda_to_str(param->srv_open.rem_bda, addr_str, sizeof(addr_str)),
+                 param->srv_open.handle);
         break;
 
     case ESP_SPP_CLOSE_EVT:
-        ESP_LOGI(kTag, "SPP connection closed: status=%d handle=%" PRIu32, param->close.status, param->close.handle);
+        ESP_LOGI(kTag, "SPP connection closed: status=%d handle=%" PRIu32,
+                 param->close.status, param->close.handle);
         break;
 
     default:
@@ -777,8 +820,9 @@ void spp_callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     }
 }
 
-void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
+// ── BLE GAP 콜백 ──
+
+void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
         s_ble_adv_config_mask &= static_cast<uint8_t>(~0x01U);
@@ -859,7 +903,8 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
         break;
 
     case ESP_GAP_BLE_NC_REQ_EVT:
-        ESP_LOGI(kTag, "BLE numeric comparison request value=%06" PRIu32 " -> auto-accept", param->ble_security.key_notif.passkey);
+        ESP_LOGI(kTag, "BLE numeric comparison request value=%06" PRIu32 " -> auto-accept",
+                 param->ble_security.key_notif.passkey);
         ESP_ERROR_CHECK(esp_ble_confirm_reply(param->ble_security.ble_req.bd_addr, true));
         break;
 
@@ -873,12 +918,10 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
 
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
         char addr_str[18] = {};
-        ESP_LOGI(
-            kTag,
-            "BLE auth complete: success=%s addr=%s addr_type=%u",
-            param->ble_security.auth_cmpl.success ? "yes" : "no",
-            bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str)),
-            param->ble_security.auth_cmpl.addr_type);
+        ESP_LOGI(kTag, "BLE auth complete: success=%s addr=%s addr_type=%u",
+                 param->ble_security.auth_cmpl.success ? "yes" : "no",
+                 bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str)),
+                 param->ble_security.auth_cmpl.addr_type);
         if (!param->ble_security.auth_cmpl.success) {
             ESP_LOGI(kTag, "BLE pairing failed, reason=0x%x", param->ble_security.auth_cmpl.fail_reason);
         }
@@ -891,8 +934,9 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
     }
 }
 
-void ble_gatts_callback(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
-{
+// ── BLE GATTS 콜백 ──
+
+void ble_gatts_callback(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     switch (event) {
     case ESP_GATTS_REG_EVT:
         ESP_LOGI(kTag, "BLE GATTS registered, app_id=%u", param->reg.app_id);
@@ -960,38 +1004,42 @@ void ble_gatts_callback(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_
 
 }  // namespace
 
-esp_err_t bt_presence_poc_start()
-{
+// ── Public API ──
+
+esp_err_t bt_manager_start() {
+    /* 페어링 큐 생성 */
+    s_pairing_queue = xQueueCreate(1, sizeof(PairingCmd));
+    configASSERT(s_pairing_queue);
+
+    /* 부팅 시 30초 페어링 윈도우 자동 시작 */
     s_pairing_mode.store(true);
     s_pairing_deadline = xTaskGetTickCount() + kPairingWindow;
 
+    /**
+     * BT 스택 초기화 순서는 PoC에서 검증된 것과 동일.
+     * 순서를 바꾸면 ESP-IDF BT 스택이 비정상 동작할 수 있으므로 절대 변경하지 말 것.
+     */
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_bt_controller_init(&bt_cfg);
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BTDM);
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
     ret = esp_bluedroid_enable();
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
 
+    /* 콜백 등록 */
     ESP_RETURN_ON_ERROR(esp_bt_gap_register_callback(classic_gap_callback), kTag, "classic GAP register failed");
     ESP_RETURN_ON_ERROR(esp_spp_register_callback(spp_callback), kTag, "SPP register failed");
     ESP_RETURN_ON_ERROR(esp_ble_gap_register_callback(ble_gap_callback), kTag, "BLE GAP register failed");
     ESP_RETURN_ON_ERROR(esp_ble_gatts_register_callback(ble_gatts_callback), kTag, "BLE GATTS register failed");
 
+    /* SPP 서버 */
     esp_spp_cfg_t spp_cfg = {
         .mode = kSppMode,
         .enable_l2cap_ertm = kSppEnableL2capErtm,
@@ -1000,6 +1048,7 @@ esp_err_t bt_presence_poc_start()
     ESP_RETURN_ON_ERROR(esp_spp_enhanced_init(&spp_cfg), kTag, "SPP init failed");
     ESP_RETURN_ON_ERROR(esp_ble_gatts_app_register(0x55), kTag, "BLE GATTS app register failed");
 
+    /* Classic 보안 */
     esp_bt_sp_param_t classic_param_type = ESP_BT_SP_IOCAP_MODE;
     esp_bt_io_cap_t classic_iocap = ESP_BT_IO_CAP_NONE;
     ESP_RETURN_ON_ERROR(esp_bt_gap_set_security_param(classic_param_type, &classic_iocap, sizeof(classic_iocap)), kTag, "classic SSP param failed");
@@ -1009,6 +1058,7 @@ esp_err_t bt_presence_poc_start()
     ESP_RETURN_ON_ERROR(esp_bt_gap_set_pin(pin_type, 0, pin_code), kTag, "classic pin config failed");
     ESP_RETURN_ON_ERROR(esp_bt_gap_set_page_timeout(kClassicPageTimeout), kTag, "classic page timeout failed");
 
+    /* BLE 보안 */
     esp_ble_auth_req_t ble_auth_req = ESP_LE_AUTH_REQ_SC_BOND;
     esp_ble_io_cap_t ble_iocap = ESP_IO_CAP_KBDISP;
     uint8_t ble_key_size = 16;
@@ -1023,20 +1073,40 @@ esp_err_t bt_presence_poc_start()
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(init_key)), kTag, "BLE init key config failed");
     ESP_RETURN_ON_ERROR(esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(rsp_key)), kTag, "BLE rsp key config failed");
 
+    /* Bond 캐시 초기화 */
     refresh_ble_bond_cache();
     refresh_classic_bond_cache();
 
     char addr_str[18] = {};
     ESP_LOGI(kTag, "Local BT address: %s", bda_to_str(esp_bt_dev_get_address(), addr_str, sizeof(addr_str)));
-    ESP_LOGI(kTag, "Starting dual-mode presence PoC: BLE Heart Rate + Classic SPP");
-    ESP_LOGI(kTag, "BLE pairing persona: '%s', fixed passkey=%06" PRIu32 ", adv flags=0x%02x", kBleDeviceName, kBleFixedPasskey, kBleAdvFlags);
+    ESP_LOGI(kTag, "BT Manager started: BLE='%s', Classic='%s'", kBleDeviceName, kClassicDeviceName);
 
-    BaseType_t task_ok = xTaskCreate(
+    /**
+     * BT 태스크는 Core 0에 고정.
+     * sdkconfig에서 BT controller/Bluedroid도 Core 0에 고정되어 있으므로
+     * 모든 BT 관련 작업이 같은 코어에서 실행된다.
+     */
+    BaseType_t task_ok = xTaskCreatePinnedToCore(
         presence_task,
-        "bt_presence_poc",
+        "bt_mgr",
         6144,
         nullptr,
         5,
-        &s_presence_task_handle);
+        &s_presence_task_handle,
+        0);  /* Core 0 */
     return task_ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+void bt_request_pairing() {
+    if (s_pairing_queue == nullptr) {
+        ESP_LOGE(kTag, "BT pairing queue not initialized");
+        return;
+    }
+
+    PairingCmd cmd = PairingCmd::StartPairing;
+    if (xQueueSend(s_pairing_queue, &cmd, 0) != pdTRUE) {
+        ESP_LOGW(kTag, "Pairing request dropped — queue full or already active");
+    } else {
+        ESP_LOGI(kTag, "Pairing requested via HTTP");
+    }
 }

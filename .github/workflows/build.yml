@@ -1,0 +1,44 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.0
+
+    steps:
+      # 소스 코드 체크아웃
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 태그에서 v 접두사를 제거하여 버전 번호 추출 (예: v3 -> 3)
+      - name: Extract version from tag
+        id: version
+        run: echo "ver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # ESP-IDF 빌드. PROJECT_VER를 태그 기반 정수로 주입.
+      - name: Build firmware
+        run: idf.py -DPROJECT_VER=${{ steps.version.outputs.ver }} build
+        shell: bash
+
+      # 빌드 산출물(bin + elf)을 아티팩트로 업로드
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/doorman.bin
+            build/doorman.elf
+
+      # 빌드 성공 시 GitHub Release 생성 + bin/elf 첨부
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: |
+            build/doorman.bin
+            build/doorman.elf

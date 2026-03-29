@@ -130,6 +130,7 @@ SM Task 로그 예시:
 - **에러 처리**: 릴리즈 없음, firmware.bin 없음, 다운로드 실패 → 무시. 다음 폴링에 재시도.
 - **버전 포맷**: 단일 정수 (v1, v2, v3). 비교는 정수 크기 비교.
 - **빌드 시 버전 주입**: `esp_app_desc`로 빌드 타임에 바이너리에 포함. 런타임에 `esp_app_get_description()`으로 읽음. NVS 별도 저장 불필요.
+- **CI/CD**: GitHub Actions로 `v*` 태그 push 시 자동 빌드 + 릴리즈 생성. 태그에서 `v` 접두사를 제거한 정수를 `PROJECT_VER`로 주입 (`idf.py -DPROJECT_VER=N build`). 릴리즈에 `doorman.bin` + `doorman.elf` 첨부. ESP32 기기는 이 릴리즈를 폴링하여 `doorman.bin`을 다운로드.
 
 ### 6. NVS 확장
 
@@ -238,6 +239,7 @@ scripts/
 - **완성 기준?** → 자동 문열림 + 웹 관리 + 자동 OTA + 1달 무장애 운영.
 - **기기 상태 갱신?** → 전체 ESP_LOG를 Ring Buffer → WS 스트리밍. 별도 상태 API 없음.
 - **코드 주석 스타일?** → 메소드마다 `/** */` doc 주석. why를 설명하는 주석 풍부하게. factbox-esp 스타일.
+- **CI/CD?** → GitHub Actions로 `v*` 태그 push 시 ESP-IDF 빌드 + Release 생성. bin+elf 첨부.
 - **OTA 중 BT?** → 그냥 병행. 코어 분리(BT=Core0, WiFi=Core1) 되어있으니 시도해보고 판단.
 - **BT PoC → 프로덕션?** → 전면 재작성. PoC에서 배운 것을 바탕으로 깨끗하게.
 - **BLE/Classic 융합?** → 하나만 감지되면 OK. 별도 통합 로직 불필요.

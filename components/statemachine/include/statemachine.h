@@ -58,6 +58,9 @@ public:
     /** 현재 추적 중인(valid 슬롯이 있는) 기기 수. */
     [[nodiscard]] int device_count() const;
 
+    /** 현재 설정 값을 반환한다. 로깅/디버깅 용도. */
+    [[nodiscard]] const AppConfig &config() const { return config_; }
+
 private:
     /**
      * per-device 상태. feed()가 새 MAC을 만나면 빈 슬롯에 동적 생성.

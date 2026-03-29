@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Doorman</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; line-height: 1.4; }
-        h1 { font-size: 1.4rem; margin: 0 0 20px; }
-        h2 { font-size: 1.1rem; margin: 24px 0 8px; padding-top: 16px; border-top: 1px solid #eee; }
+        body { font-family: system-ui, sans-serif; max-width: 520px; margin: 0 auto; padding: 16px; line-height: 1.4; color: #1f2328; }
+        h1 { font-size: 1.4rem; margin: 0 0 12px; }
+        h2 { font-size: 1.1rem; margin: 20px 0 8px; padding-top: 12px; border-top: 1px solid #eee; }
         h2:first-of-type { border-top: none; padding-top: 0; }
         label { display: block; font-size: 0.85rem; font-weight: 600; margin: 8px 0 4px; }
         input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
@@ -16,47 +16,105 @@
         button:disabled { background: #8b949e; cursor: not-allowed; }
         .btn-danger { background: #da3633; }
         .btn-green { background: #238636; }
+        .btn-orange { background: #d29922; }
         progress { width: 100%; height: 18px; margin-top: 10px; display: none; }
         .status { margin-top: 8px; padding: 8px 10px; border-radius: 6px; display: none; font-size: 0.9rem; }
         .ok { background: #dafbe1; color: #116329; }
         .err { background: #ffebe9; color: #a40e26; }
         .run { background: #ddf4ff; color: #0550ae; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #ddd; }
+        .tab { padding: 8px 16px; cursor: pointer; border: none; background: none; font: inherit; font-weight: 600; color: #656d76; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { color: #1f6feb; border-bottom-color: #1f6feb; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Log area */
+        #logArea {
+            width: 100%; box-sizing: border-box;
+            height: 320px; overflow-y: auto;
+            background: #0d1117; color: #c9d1d9;
+            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+            font-size: 0.75rem; line-height: 1.5;
+            padding: 8px; border-radius: 8px;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .ws-status { font-size: 0.8rem; margin-bottom: 6px; color: #656d76; }
+        .ws-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+        .dot-ok { background: #238636; }
+        .dot-err { background: #da3633; }
+        .dot-wait { background: #d29922; }
     </style>
 </head>
 <body>
     <h1>Doorman</h1>
 
-    <!-- Door Control -->
-    <h2>Door</h2>
-    <button class="btn-green" onclick="openDoor()">Open Door</button>
-    <div id="doorStatus" class="status"></div>
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
+        <button class="tab" onclick="switchTab('settings')">Settings</button>
+    </div>
 
-    <!-- Firmware Update -->
-    <h2>Firmware</h2>
-    <input id="file" type="file" accept=".bin,application/octet-stream">
-    <button onclick="uploadFirmware()">Upload &amp; Reboot</button>
-    <progress id="progress" value="0" max="100"></progress>
-    <div id="otaStatus" class="status"></div>
+    <!-- Dashboard Tab -->
+    <div id="tab-dashboard" class="tab-panel active">
+        <button class="btn-green" onclick="openDoor()">Open Door</button>
+        <div id="doorStatus" class="status"></div>
 
-    <!-- Account -->
-    <h2>Account</h2>
-    <label for="authUser">Username</label>
-    <input id="authUser" type="text" maxlength="31" autocomplete="off">
-    <label for="authPass">Password</label>
-    <input id="authPass" type="password" maxlength="63">
-    <button onclick="updateAuth()">Update Account</button>
-    <div id="authStatus" class="status"></div>
+        <h2>Live Log</h2>
+        <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
+        <div id="logArea"></div>
+    </div>
 
-    <!-- WiFi -->
-    <h2>WiFi</h2>
-    <label for="wifiSsid">SSID</label>
-    <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
-    <label for="wifiPass">Password</label>
-    <input id="wifiPass" type="password" maxlength="63">
-    <button class="btn-danger" onclick="updateWifi()">Save &amp; Reboot</button>
-    <div id="wifiStatus" class="status"></div>
+    <!-- Settings Tab -->
+    <div id="tab-settings" class="tab-panel">
+        <!-- Pairing -->
+        <h2>Bluetooth Pairing</h2>
+        <button class="btn-orange" onclick="startPairing()">Start Pairing (30s)</button>
+        <div id="pairStatus" class="status"></div>
+
+        <!-- Firmware Update -->
+        <h2>Firmware</h2>
+        <input id="file" type="file" accept=".bin,application/octet-stream">
+        <button onclick="uploadFirmware()">Upload &amp; Reboot</button>
+        <progress id="progress" value="0" max="100"></progress>
+        <div id="otaStatus" class="status"></div>
+
+        <!-- Account -->
+        <h2>Account</h2>
+        <label for="authUser">Username</label>
+        <input id="authUser" type="text" maxlength="31" autocomplete="off">
+        <label for="authPass">Password</label>
+        <input id="authPass" type="password" maxlength="63">
+        <button onclick="updateAuth()">Update Account</button>
+        <div id="authStatus" class="status"></div>
+
+        <!-- WiFi -->
+        <h2>WiFi</h2>
+        <label for="wifiSsid">SSID</label>
+        <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
+        <label for="wifiPass">Password</label>
+        <input id="wifiPass" type="password" maxlength="63">
+        <button class="btn-danger" onclick="updateWifi()">Save &amp; Reboot</button>
+        <div id="wifiStatus" class="status"></div>
+    </div>
 
 <script>
+/* ── Tab switching ── */
+function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.getElementById('tab-' + name).classList.add('active');
+    /* Find matching tab button by text content */
+    document.querySelectorAll('.tab').forEach(function(t) {
+        if (t.textContent.toLowerCase() === name.toLowerCase() ||
+            (name === 'dashboard' && t.textContent === 'Dashboard') ||
+            (name === 'settings' && t.textContent === 'Settings')) {
+            t.classList.add('active');
+        }
+    });
+}
+
+/* ── Helpers ── */
 function show(id, msg, cls) {
     var el = document.getElementById(id);
     el.textContent = msg;
@@ -87,9 +145,15 @@ function post(url, body, statusId, okMsg, reboot) {
     xhr.send(body);
 }
 
+/* ── Actions ── */
 function openDoor() {
     show('doorStatus', 'Sending...', 'run');
     post('/api/door/open', null, 'doorStatus', 'Door opened!', false);
+}
+
+function startPairing() {
+    show('pairStatus', 'Starting...', 'run');
+    post('/api/pairing/start', null, 'pairStatus', 'Pairing window open (30s). Pair your device now!', false);
 }
 
 function uploadFirmware() {
@@ -147,6 +211,55 @@ function updateWifi() {
          'Saved! Device is rebooting...',
          true);
 }
+
+/* ── WebSocket Log Streaming ── */
+var MAX_LOG_LINES = 500;
+var logLines = 0;
+var ws = null;
+
+function wsConnect() {
+    var host = location.hostname || 'doorman.local';
+    var url = 'ws://' + host + '/ws';
+    ws = new WebSocket(url);
+
+    ws.onopen = function() {
+        document.getElementById('wsDot').className = 'dot dot-ok';
+        document.getElementById('wsLabel').textContent = 'Connected';
+    };
+
+    ws.onmessage = function(evt) {
+        var area = document.getElementById('logArea');
+        area.textContent += evt.data;
+        logLines += (evt.data.match(/\n/g) || []).length;
+
+        /* Trim to MAX_LOG_LINES to prevent memory bloat */
+        if (logLines > MAX_LOG_LINES) {
+            var lines = area.textContent.split('\n');
+            var excess = lines.length - MAX_LOG_LINES;
+            if (excess > 0) {
+                area.textContent = lines.slice(excess).join('\n');
+                logLines = MAX_LOG_LINES;
+            }
+        }
+
+        /* Auto-scroll to bottom */
+        area.scrollTop = area.scrollHeight;
+    };
+
+    ws.onclose = function() {
+        document.getElementById('wsDot').className = 'dot dot-err';
+        document.getElementById('wsLabel').textContent = 'Disconnected. Reconnecting...';
+        setTimeout(wsConnect, 3000);
+    };
+
+    ws.onerror = function() {
+        document.getElementById('wsDot').className = 'dot dot-err';
+        document.getElementById('wsLabel').textContent = 'Error';
+        ws.close();
+    };
+}
+
+wsConnect();
 </script>
 </body>
 </html>
