@@ -165,6 +165,36 @@ TEST_F(StateMachineTest, MultipleDevicesAreIndependent) {
     EXPECT_EQ(sm.tick(2000), Action::NoOp);
 }
 
+// 정확히 presence_timeout_ms 경계에서 미감지 전환
+TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
+    StateMachine sm(cfg);
+    sm.feed(mac_a, true, 1000);
+    EXPECT_EQ(sm.tick(1000), Action::Unlock);
+
+    // 정확히 presence_timeout_ms(5000) 경과 시점 tick(6000)
+    // 6000 - 1000 = 5000 >= 5000 → 미감지 전환
+    // 쿨다운 미충족이므로 NoOp 반환, 하지만 내부적으로 미감지 상태
+    EXPECT_EQ(sm.tick(6000), Action::NoOp);
+
+    // 미감지 전환 확인: 쿨다운(120s=120000ms) 경과 후 재감지 → Unlock
+    sm.feed(mac_a, true, 121001);
+    EXPECT_EQ(sm.tick(121001), Action::Unlock);
+}
+
+// 정확히 cooldown 경계(120000ms)에서 Unlock
+TEST_F(StateMachineTest, ExactCooldownBoundaryReturnsUnlock) {
+    StateMachine sm(cfg);
+    sm.feed(mac_a, true, 1000);
+    EXPECT_EQ(sm.tick(1000), Action::Unlock);
+
+    // 타임아웃으로 미감지 전환
+    EXPECT_EQ(sm.tick(6001), Action::NoOp);
+
+    // 정확히 cooldown_sec(120) * 1000 = 120000ms 경과 후 재감지
+    sm.feed(mac_a, true, 121000);
+    EXPECT_EQ(sm.tick(121000), Action::Unlock);
+}
+
 // 오래된 슬롯 정리
 TEST_F(StateMachineTest, StaleDevicesAreCleaned) {
     StateMachine sm(cfg);

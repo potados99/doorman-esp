@@ -1,5 +1,7 @@
 #include "door_control.h"
 
+#include <atomic>
+
 #include <driver/gpio.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -9,20 +11,7 @@ static const char *TAG = "door";
 static const gpio_num_t DOOR_GPIO = GPIO_NUM_4;
 static const int PULSE_MS = 500;
 
-static volatile bool pulse_in_progress = false;
-
-static void pulse_task(void *) {
-    gpio_set_level(DOOR_GPIO, 1);
-    ESP_LOGI(TAG, "GPIO %d HIGH", DOOR_GPIO);
-
-    vTaskDelay(pdMS_TO_TICKS(PULSE_MS));
-
-    gpio_set_level(DOOR_GPIO, 0);
-    ESP_LOGI(TAG, "GPIO %d LOW — pulse complete", DOOR_GPIO);
-
-    pulse_in_progress = false;
-    vTaskDelete(nullptr);
-}
+static std::atomic<bool> pulse_in_progress{false};
 
 void door_control_init() {
     gpio_config_t io = {};
@@ -38,10 +27,14 @@ void door_control_init() {
 }
 
 bool door_trigger_pulse() {
-    if (pulse_in_progress) {
+    if (pulse_in_progress.exchange(true)) {
         return false;
     }
-    pulse_in_progress = true;
-    xTaskCreate(pulse_task, "door_pulse", 2048, nullptr, 5, nullptr);
+    gpio_set_level(DOOR_GPIO, 1);
+    ESP_LOGI(TAG, "GPIO %d HIGH", DOOR_GPIO);
+    vTaskDelay(pdMS_TO_TICKS(PULSE_MS));
+    gpio_set_level(DOOR_GPIO, 0);
+    ESP_LOGI(TAG, "GPIO %d LOW — pulse complete", DOOR_GPIO);
+    pulse_in_progress.store(false);
     return true;
 }

@@ -32,14 +32,7 @@ static void control_task(void *) {
             if (!door_trigger_pulse()) {
                 ESP_LOGW(TAG, "Door pulse skipped — already in progress");
             }
-
-            /**
-             * 펄스 완료 대기 (500ms + 여유).
-             * door_trigger_pulse()는 비동기로 펄스를 시작하므로,
-             * 다음 명령이 바로 들어와도 "already in progress"로 거부되지 않도록
-             * 충분한 간격을 둔다.
-             */
-            vTaskDelay(pdMS_TO_TICKS(700));
+            /* door_trigger_pulse()가 blocking이므로 추가 딜레이 불필요 */
         }
     }
 }

@@ -29,6 +29,6 @@ void sm_task_start(AppConfig cfg);
  * BT Manager의 콜백(ISR이 아닌 BT 태스크 컨텍스트)에서 호출.
  * mac: 6바이트 BT MAC 주소 (BLE identity 또는 Classic BD_ADDR)
  * seen: true면 감지, false면 미감지
- * now_ms: 현재 시간(밀리초). xTaskGetTickCount() * portTICK_PERIOD_MS로 산출.
+ * now_ms: 현재 시간(밀리초). esp_timer_get_time() / 1000으로 산출.
  */
 void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms);

@@ -9,6 +9,7 @@
 
 #include "aes/esp_aes.h"
 #include "esp_bt.h"
+#include "esp_timer.h"
 #include "esp_bt_device.h"
 #include "esp_bt_main.h"
 #include "esp_check.h"
@@ -48,7 +49,7 @@ constexpr bool kSppEnableL2capErtm = true;
 constexpr esp_spp_sec_t kSppSecMask = ESP_SPP_SEC_AUTHENTICATE;
 constexpr esp_spp_role_t kSppRole = ESP_SPP_ROLE_SLAVE;
 
-constexpr uint8_t kBleAdvFlags = ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT;
+constexpr uint8_t kBleAdvFlags = ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_DMT_CONTROLLER_SPT | ESP_BLE_ADV_FLAG_DMT_HOST_SPT;
 
 // ── 페어링 큐 메시지 ──
 
@@ -160,7 +161,7 @@ struct ClassicPeer {
 
 portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t s_presence_task_handle = nullptr;
-TickType_t s_pairing_deadline = 0;
+TickType_t s_pairing_start_tick = 0;
 
 std::atomic<bool> s_pairing_mode{false};
 std::atomic<bool> s_ble_local_privacy_ready{false};
@@ -180,7 +181,7 @@ int s_classic_peer_count = 0;
 uint16_t s_hrs_handle_table[kHrsCount] = {};
 uint16_t s_bas_handle_table[kBasCount] = {};
 uint16_t s_dis_handle_table[kDisCount] = {};
-uint8_t s_ble_adv_config_mask = 0;
+std::atomic<uint8_t> s_ble_adv_config_mask{0};
 
 constexpr uint16_t kPrimaryServiceUuid = ESP_GATT_UUID_PRI_SERVICE;
 constexpr uint16_t kCharacteristicDeclUuid = ESP_GATT_UUID_CHAR_DECLARE;
@@ -501,7 +502,7 @@ void open_pairing_window() {
     }
 
     s_pairing_mode.store(true);
-    s_pairing_deadline = xTaskGetTickCount() + kPairingWindow;
+    s_pairing_start_tick = xTaskGetTickCount();
 
     /* BLE: 스캔 중지 → advertising 시작 */
     if (s_ble_scanning.load()) {
@@ -554,38 +555,58 @@ void close_pairing_window() {
  * StateMachine이 기기를 일관되게 추적할 수 있도록 한다.
  */
 void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param &scan_rst) {
-    int matched_index = -1;
+    /*
+     * 크리티컬 섹션 안에서 resolve_rpa_with_irk()를 호출하면
+     * 하드웨어 AES가 내부적으로 mutex를 잡아 데드락이 발생할 수 있다.
+     * maybe_start_classic_probe()와 동일한 패턴으로
+     * 먼저 peer 데이터를 로컬에 스냅샷한 뒤, 섹션 밖에서 RPA resolve를 수행한다.
+     */
+    BlePeer peers_snap[kMaxBleBondedDevices] = {};
+    int peer_count = 0;
 
     taskENTER_CRITICAL(&s_state_lock);
-    for (int i = 0; i < s_ble_peer_count; ++i) {
-        if (!s_ble_peers[i].valid) continue;
+    peer_count = s_ble_peer_count;
+    if (peer_count > kMaxBleBondedDevices) {
+        peer_count = kMaxBleBondedDevices;
+    }
+    std::memcpy(peers_snap, s_ble_peers, sizeof(peers_snap));
+    taskEXIT_CRITICAL(&s_state_lock);
 
-        bool matched = std::memcmp(scan_rst.bda, s_ble_peers[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
-        if (!matched && s_ble_peers[i].has_identity_key) {
-            matched = resolve_rpa_with_irk(scan_rst.bda, s_ble_peers[i].irk);
+    int matched_index = -1;
+    for (int i = 0; i < peer_count; ++i) {
+        if (!peers_snap[i].valid) continue;
+
+        bool matched = std::memcmp(scan_rst.bda, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
+        if (!matched && peers_snap[i].has_identity_key) {
+            matched = resolve_rpa_with_irk(scan_rst.bda, peers_snap[i].irk);
         }
 
         if (matched) {
             matched_index = i;
-            s_ble_peers[i].last_seen_tick = xTaskGetTickCount();
-            s_ble_peers[i].last_rssi = static_cast<int8_t>(scan_rst.rssi);
-            std::memcpy(s_ble_peers[i].last_adv_addr, scan_rst.bda, ESP_BD_ADDR_LEN);
             break;
         }
     }
-    taskEXIT_CRITICAL(&s_state_lock);
 
     if (matched_index >= 0) {
+        /* 매칭 성공 시 크리티컬 섹션으로 돌아가서 상태 업데이트 */
+        taskENTER_CRITICAL(&s_state_lock);
+        if (matched_index < s_ble_peer_count && s_ble_peers[matched_index].valid) {
+            s_ble_peers[matched_index].last_seen_tick = xTaskGetTickCount();
+            s_ble_peers[matched_index].last_rssi = static_cast<int8_t>(scan_rst.rssi);
+            std::memcpy(s_ble_peers[matched_index].last_adv_addr, scan_rst.bda, ESP_BD_ADDR_LEN);
+        }
+        taskEXIT_CRITICAL(&s_state_lock);
+
         char identity_str[18] = {};
-        bda_to_str(s_ble_peers[matched_index].identity_addr, identity_str, sizeof(identity_str));
+        bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
 
         ESP_LOGI(kTag, "BLE present peer[%d] id=%s rssi=%d",
                  matched_index, identity_str, scan_rst.rssi);
 
         /* SM Task에 감지 이벤트 전달 */
-        uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
-            reinterpret_cast<const uint8_t(&)[6]>(s_ble_peers[matched_index].identity_addr),
+            reinterpret_cast<const uint8_t(&)[6]>(peers_snap[matched_index].identity_addr),
             true, now_ms);
     }
 }
@@ -679,7 +700,7 @@ void presence_task(void *) {
         }
 
         if (s_pairing_mode.load()) {
-            if (now >= s_pairing_deadline) {
+            if ((now - s_pairing_start_tick) >= kPairingWindow) {
                 close_pairing_window();
 
                 /* 페어링 종료 직후 bond 캐시 갱신 */
@@ -687,7 +708,7 @@ void presence_task(void *) {
                 refresh_classic_bond_cache();
             } else if (now - last_pairing_log >= kPairingLogInterval) {
                 last_pairing_log = now;
-                uint32_t remaining_ms = (s_pairing_deadline - now) * portTICK_PERIOD_MS;
+                uint32_t remaining_ms = (kPairingWindow - (now - s_pairing_start_tick)) * portTICK_PERIOD_MS;
                 ESP_LOGI(kTag, "Pairing mode active for %lu ms more. BLE='%s', Classic='%s'",
                          (unsigned long)remaining_ms, kBleDeviceName, kClassicDeviceName);
             }
@@ -751,7 +772,7 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                      reinterpret_cast<const char *>(param->read_rmt_name.rmt_name));
 
             /* SM Task에 감지 이벤트 전달 */
-            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
             sm_feed_queue_send(
                 reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
                 true, now_ms);
@@ -765,7 +786,7 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             ESP_LOGI(kTag, "Classic absent: %s",
                      bda_to_str(param->read_rmt_name.bda, fail_addr_str, sizeof(fail_addr_str)));
 
-            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
             sm_feed_queue_send(
                 reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
                 false, now_ms);
@@ -1013,7 +1034,7 @@ esp_err_t bt_manager_start() {
 
     /* 부팅 시 30초 페어링 윈도우 자동 시작 */
     s_pairing_mode.store(true);
-    s_pairing_deadline = xTaskGetTickCount() + kPairingWindow;
+    s_pairing_start_tick = xTaskGetTickCount();
 
     /**
      * BT 스택 초기화 순서는 PoC에서 검증된 것과 동일.

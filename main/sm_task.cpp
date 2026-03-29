@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -72,7 +73,7 @@ static void sm_task(void *arg) {
             sm.feed(reinterpret_cast<const uint8_t(&)[6]>(*mac_ref), msg.seen, msg.now_ms);
         }
 
-        uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         Action action = sm.tick(now_ms);
 
         if (action == Action::Unlock) {

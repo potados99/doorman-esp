@@ -29,3 +29,24 @@ TEST(ConfigTest, PresenceTimeoutExceedingMaxIsRejected) {
     cfg.presence_timeout_ms = 60001;
     EXPECT_FALSE(validate(cfg));
 }
+
+// 경계값 테스트: cooldown_sec=3600 (최대 허용)
+TEST(ConfigTest, CooldownSecMaxBoundaryIsValid) {
+    AppConfig cfg;
+    cfg.cooldown_sec = 3600;
+    EXPECT_TRUE(validate(cfg));
+}
+
+// 경계값 테스트: presence_timeout_ms=1 (최소 허용)
+TEST(ConfigTest, PresenceTimeoutMinBoundaryIsValid) {
+    AppConfig cfg;
+    cfg.presence_timeout_ms = 1;
+    EXPECT_TRUE(validate(cfg));
+}
+
+// 경계값 테스트: presence_timeout_ms=60000 (최대 허용)
+TEST(ConfigTest, PresenceTimeoutMaxBoundaryIsValid) {
+    AppConfig cfg;
+    cfg.presence_timeout_ms = 60000;
+    EXPECT_TRUE(validate(cfg));
+}
