@@ -26,7 +26,7 @@ extern const char setup_html_start[] asm("_binary_setup_html_start");
 
 // ── Helpers ──
 
-static bool upload_in_progress = false;
+static std::atomic<bool> upload_in_progress{false};
 
 static esp_err_t send_text(httpd_req_t *req, const char *status, const char *msg) {
     httpd_resp_set_status(req, status);
@@ -109,12 +109,21 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
     if (req->content_len <= 0 || req->content_len >= static_cast<int>(buf_size)) {
         return -1;
     }
-    int received = httpd_req_recv(req, buf, req->content_len);
-    if (received <= 0) {
-        return -1;
+
+    int total = 0;
+    while (total < req->content_len) {
+        int received = httpd_req_recv(req, buf + total, req->content_len - total);
+        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (received <= 0) {
+            return -1;
+        }
+        total += received;
     }
-    buf[received] = '\0';
-    return received;
+
+    buf[total] = '\0';
+    return total;
 }
 
 // ── WebSocket 로그 스트리밍 ──
@@ -171,7 +180,7 @@ static void ws_sender_task(void *) {
         void *item = xRingbufferReceive(s_log_ringbuf, &item_size, pdMS_TO_TICKS(100));
 
         if (item != nullptr && item_size > 0) {
-            int fd = s_ws_fd;
+            int fd = s_ws_fd.load();
             if (fd >= 0 && s_server != nullptr) {
                 httpd_ws_frame_t pkt = {};
                 pkt.type = HTTPD_WS_TYPE_TEXT;
@@ -185,7 +194,7 @@ static void ws_sender_task(void *) {
                      * 전송 실패 시 WS 연결이 끊어진 것으로 간주.
                      * 다음 WS 연결 시 s_ws_fd가 새로 설정된다.
                      */
-                    s_ws_fd = -1;
+                    s_ws_fd.store(-1);
                 }
             }
             vRingbufferReturnItem(s_log_ringbuf, item);
@@ -298,12 +307,12 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     const char *response_status = "500 Internal Server Error";
     const char *response_message = "Upload failed";
 
-    if (upload_in_progress) {
+    bool expected = false;
+    if (!upload_in_progress.compare_exchange_strong(expected, true)) {
         response_status = "409 Conflict";
         response_message = "Upload already in progress";
         goto cleanup;
     }
-    upload_in_progress = true;
     upload_claimed = true;
 
     {
@@ -382,7 +391,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
         goto cleanup;
     }
 
-    upload_in_progress = false;
+    upload_in_progress.store(false);
     upload_claimed = false;
 
     send_text(req, "200 OK", "OK");
@@ -391,7 +400,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
 
 cleanup:
     if (ota_session_open) esp_ota_abort(ota_handle);
-    if (upload_claimed) upload_in_progress = false;
+    if (upload_claimed) upload_in_progress.store(false);
     send_text(req, response_status, response_message);
     return result == ESP_OK ? ESP_FAIL : result;
 }
@@ -413,6 +422,7 @@ static esp_err_t pairing_start_handler(httpd_req_t *req) {
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
+        if (!check_auth(req)) return ESP_OK;
         /* WebSocket 핸드셰이크 완료 시점 */
         s_ws_fd.store(httpd_req_to_sockfd(req));
         ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", s_ws_fd.load());
@@ -524,10 +534,11 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/ws",                    HTTP_GET,  ws_handler,           true},
         };
         ok = register_routes(server, sta_routes, 7);
-
-        /* STA 모드에서만 로그 스트리밍 활성화 */
-        s_server = server;
-        init_log_streaming();
+        if (ok) {
+            /* STA 모드에서만 로그 스트리밍 활성화 */
+            s_server = server;
+            init_log_streaming();
+        }
     }
 
     if (!ok) return nullptr;

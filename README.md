@@ -29,14 +29,14 @@ README는 미래 희망사항이 아니라 현재 기준으로 적는다.
 - `main/sm_task.cpp`: StateMachine을 FreeRTOS 태스크로 래핑. BT feed 큐 수신 → tick() → Unlock 판정 시 Control 큐 전송
 - `main/control_task.cpp`: GPIO 도어 제어 태스크. AutoUnlock / ManualUnlock 큐 수신 → GPIO 펄스
 - `main/config_service.cpp`: AppConfig 서비스. getConfig()/setConfig() + NVS 영속 + lock
-- `components/statemachine/`: StateMachine — feed(mac, seen, now_ms) + tick(now_ms) API로 BT 감지 → Unlock 판정. 쿨다운, 타임아웃 로직 포함. 호스트 GTest 17개 통과.
+- `components/statemachine/`: StateMachine — feed(mac, seen, now_ms) + tick(now_ms) API로 BT 감지 → Unlock 판정. 쿨다운, 타임아웃 로직 포함. 호스트 GTest 22개 통과.
 - `components/config/`: AppConfig 구조체 (cooldown_sec, presence_timeout_ms) + validate()
-- `frontend/`: index.html (STA 메인: Dashboard/Settings 탭 구조, 문열기, WebSocket 실시간 로그, OTA, 계정, WiFi) + setup.html (SoftAP 프로비저닝)
-- `.github/workflows/build.yml`: GitHub Actions CI — ESP-IDF 빌드 + 호스트 테스트 자동 검증
+- `frontend/`: index.html (STA 메인: Dashboard/Settings 탭 구조, 문열기, 페어링 시작, WebSocket 실시간 로그, OTA 업로드, 계정, WiFi) + setup.html (SoftAP 프로비저닝)
+- `.github/workflows/build.yml`: 태그 기반 GitHub Actions 워크플로우. 호스트 테스트 + ESP-IDF 빌드 후 GitHub Release 생성
 - `scripts/ota_upload.sh`: MAC 기반 IP 탐색 + OTA 업로드 스크립트
 - `partitions.csv`: 8MB flash 기준 OTA 파티션 레이아웃
 
-개발 인프라(WiFi, OTA, 웹 제어), BT 매니저, 핵심 상태머신, 태스크 구조(SM/Control), WebSocket 로그 스트리밍, CI/CD가 확보됐다. 다음 단계는 GitHub Releases 기반 자동 OTA와 실환경 운영이다.
+개발 인프라(WiFi, OTA 업로드, 웹 제어), BT 매니저, 핵심 상태머신, 태스크 구조(SM/Control), WebSocket 로그 스트리밍, 태그 기반 빌드/릴리즈 워크플로우가 확보됐다. 다음 단계는 설정 UI 확장, GitHub Releases 기반 자동 OTA, 실환경 운영이다.
 
 ## 하드웨어 가정
 
@@ -274,10 +274,11 @@ partitions.csv
 3. ~~WiFi 프로비저닝 + 웹 제어 + GPIO~~ ✅
 4. ~~AppConfig + StateMachine 상태머신~~ ✅
 5. ~~bt_presence_poc → bt_manager 프로덕션화 + StateMachine 연결~~ ✅
-6. ~~웹 UI 탭 분리 + 기기 목록/상태 + WebSocket~~ ✅
-7. ~~GitHub Actions CI (ESP-IDF 빌드 + 호스트 테스트)~~ ✅
-8. GitHub Releases 폴링 기반 자동 OTA
-9. 통합 테스트 + 실사무실 배포 + 1달 운영
+6. ~~웹 UI 탭 분리 + WebSocket 로그 스트리밍~~ ✅
+7. ~~태그 기반 GitHub Actions 호스트 테스트 + 빌드/릴리즈~~ ✅
+8. 설정 UI 확장 (쿨다운/타임아웃, 현재 버전)
+9. GitHub Releases 폴링 기반 자동 OTA
+10. 통합 테스트 + 실사무실 배포 + 1달 운영
 
 SoftAP + OTA는 운영용 기능이 아니라 `개발 편의용`이다.
 초회만 시리얼/JTAG로 올리고, 이후 반복 개발은 웹 업로드로 돌리는 흐름을 의도한다.
@@ -312,7 +313,7 @@ ctest --test-dir build-host
 - `docs/brainstorms/2026-03-27-mvp2-wifi-provisioning-web-brainstorm.md` — 2차 MVP
 - `docs/brainstorms/2026-03-29-final-product-spec-brainstorm.md` — 최종 제품 스펙 (정본)
 - `docs/plans/2026-03-29-feat-appconfig-gatekeeper-statemachine-plan.md` — 3차 구현 플랜
-- `.github/workflows/build.yml` — GitHub Actions CI (ESP-IDF 빌드 + 호스트 테스트)
+- `.github/workflows/build.yml` — 태그 기반 빌드/릴리즈 워크플로우 (ESP-IDF 빌드)
 
 브레인스토밍 문서는 방향을 잡는 데 쓰고, 실제 구현 전환은 플랜 문서를 기준으로 한다.
 

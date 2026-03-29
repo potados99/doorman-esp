@@ -22,6 +22,7 @@ static SemaphoreHandle_t s_mutex = nullptr;
  * NVS open 실패 시에도 기본값으로 정상 동작한다.
  */
 static void load_from_nvs() {
+    AppConfig loaded = s_config;
     nvs_handle_t handle;
     if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
         ESP_LOGI(TAG, "No stored config — using defaults (cooldown=%lus, timeout=%lums)",
@@ -32,13 +33,22 @@ static void load_from_nvs() {
 
     uint32_t val;
     if (nvs_get_u32(handle, kKeyCooldown, &val) == ESP_OK) {
-        s_config.cooldown_sec = val;
+        loaded.cooldown_sec = val;
     }
     if (nvs_get_u32(handle, kKeyTimeout, &val) == ESP_OK) {
-        s_config.presence_timeout_ms = val;
+        loaded.presence_timeout_ms = val;
     }
 
     nvs_close(handle);
+
+    if (!validate(loaded)) {
+        ESP_LOGW(TAG, "Stored config is invalid — using defaults (cooldown=%lus, timeout=%lums)",
+                 (unsigned long)s_config.cooldown_sec,
+                 (unsigned long)s_config.presence_timeout_ms);
+        return;
+    }
+
+    s_config = loaded;
 
     ESP_LOGI(TAG, "Config loaded from NVS: cooldown=%lus, timeout=%lums",
              (unsigned long)s_config.cooldown_sec,
@@ -80,6 +90,13 @@ AppConfig app_config_get() {
 }
 
 void app_config_set(const AppConfig &cfg) {
+    if (!validate(cfg)) {
+        ESP_LOGW(TAG, "Rejected invalid config update: cooldown=%lu timeout=%lu",
+                 (unsigned long)cfg.cooldown_sec,
+                 (unsigned long)cfg.presence_timeout_ms);
+        return;
+    }
+
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     std::memcpy(&s_config, &cfg, sizeof(AppConfig));
     save_to_nvs();

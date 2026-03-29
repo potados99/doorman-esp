@@ -29,7 +29,7 @@ AppConfig app_config_get();
 /**
  * AppConfig를 업데이트하고 NVS에 즉시 저장한다.
  *
- * validate()를 통과한 값만 전달할 것 — 이 함수는 검증하지 않는다.
+ * invalid 값은 거부한다. 유효한 값만 NVS에 저장된다.
  * NVS 저장이 포함되므로 빈번하게 호출하면 flash wear에 주의.
  */
 void app_config_set(const AppConfig &cfg);

@@ -68,9 +68,7 @@ static void sm_task(void *arg) {
             mac_to_str(msg.mac, mac_str, sizeof(mac_str));
             ESP_LOGI(TAG, "Feed: %s seen=%s", mac_str, msg.seen ? "yes" : "no");
 
-            uint8_t mac_ref[6];
-            std::memcpy(mac_ref, msg.mac, 6);
-            sm.feed(reinterpret_cast<const uint8_t(&)[6]>(*mac_ref), msg.seen, msg.now_ms);
+            sm.feed(msg.mac, msg.seen, msg.now_ms);
         }
 
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
