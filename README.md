@@ -19,20 +19,24 @@ ESP32 기반 사무실 도어락 자동 열림 장치.
 
 ## 현재 상태
 
-지금 구현된 것은 많지 않다. README는 미래 희망사항이 아니라 현재 기준으로 적는다.
+README는 미래 희망사항이 아니라 현재 기준으로 적는다.
 
 - `main/`: WiFi 프로비저닝 (SoftAP → STA), HTTP Basic Auth, 웹 문열기, OTA 업로드
-- `main/bt_presence_poc.cpp`: BTDM dual-mode presence PoC
+- `main/bt_manager.cpp`: BTDM dual-mode BT 매니저
   - 부팅 후 30초 pairing window
   - BLE bond 후 IRK 기반 RPA resolve
   - Classic SPP pairing + bonded BR/EDR remote-name probe
+- `main/sm_task.cpp`: StateMachine을 FreeRTOS 태스크로 래핑. BT feed 큐 수신 → tick() → Unlock 판정 시 Control 큐 전송
+- `main/control_task.cpp`: GPIO 도어 제어 태스크. AutoUnlock / ManualUnlock 큐 수신 → GPIO 펄스
+- `main/config_service.cpp`: AppConfig 서비스. getConfig()/setConfig() + NVS 영속 + lock
 - `components/statemachine/`: StateMachine — feed(mac, seen, now_ms) + tick(now_ms) API로 BT 감지 → Unlock 판정. 쿨다운, 타임아웃 로직 포함. 호스트 GTest 17개 통과.
 - `components/config/`: AppConfig 구조체 (cooldown_sec, presence_timeout_ms) + validate()
-- `frontend/`: index.html (STA 메인: 문열기/OTA/계정/WiFi) + setup.html (SoftAP 프로비저닝)
+- `frontend/`: index.html (STA 메인: Dashboard/Settings 탭 구조, 문열기, WebSocket 실시간 로그, OTA, 계정, WiFi) + setup.html (SoftAP 프로비저닝)
+- `.github/workflows/build.yml`: GitHub Actions CI — ESP-IDF 빌드 + 호스트 테스트 자동 검증
 - `scripts/ota_upload.sh`: MAC 기반 IP 탐색 + OTA 업로드 스크립트
 - `partitions.csv`: 8MB flash 기준 OTA 파티션 레이아웃
 
-즉, 개발 인프라(WiFi, OTA, 웹 제어)와 BT PoC, 핵심 상태머신이 확보됐고, 이제 BT와 StateMachine을 연결하는 단계다.
+개발 인프라(WiFi, OTA, 웹 제어), BT 매니저, 핵심 상태머신, 태스크 구조(SM/Control), WebSocket 로그 스트리밍, CI/CD가 확보됐다. 다음 단계는 GitHub Releases 기반 자동 OTA와 실환경 운영이다.
 
 ## 하드웨어 가정
 
@@ -215,6 +219,9 @@ ESP-IDF는 C 중심 생태계지만, 앱 레벨 로직까지 C로 쓸 이유는 
 현재 구조:
 
 ```text
+.github/
+  workflows/
+    build.yml
 components/
   statemachine/
     include/statemachine.h
@@ -234,7 +241,10 @@ main/
   main.cpp
   wifi.h / wifi.cpp
   http_server.h / http_server.cpp
-  bt_presence_poc.h / bt_presence_poc.cpp
+  bt_manager.h / bt_manager.cpp
+  sm_task.h / sm_task.cpp
+  control_task.h / control_task.cpp
+  config_service.h / config_service.cpp
   door_control.h / door_control.cpp
   nvs_config.h / nvs_config.cpp
   CMakeLists.txt
@@ -263,10 +273,11 @@ partitions.csv
 2. ~~BT presence PoC~~ ✅
 3. ~~WiFi 프로비저닝 + 웹 제어 + GPIO~~ ✅
 4. ~~AppConfig + StateMachine 상태머신~~ ✅
-5. bt_presence_poc → bt_manager 프로덕션화 + StateMachine 연결
-6. 웹 UI 탭 분리 + 기기 목록/상태 + WebSocket
-7. GitHub Releases 폴링 기반 자동 OTA
-8. 통합 테스트 + 실사무실 배포 + 1달 운영
+5. ~~bt_presence_poc → bt_manager 프로덕션화 + StateMachine 연결~~ ✅
+6. ~~웹 UI 탭 분리 + 기기 목록/상태 + WebSocket~~ ✅
+7. ~~GitHub Actions CI (ESP-IDF 빌드 + 호스트 테스트)~~ ✅
+8. GitHub Releases 폴링 기반 자동 OTA
+9. 통합 테스트 + 실사무실 배포 + 1달 운영
 
 SoftAP + OTA는 운영용 기능이 아니라 `개발 편의용`이다.
 초회만 시리얼/JTAG로 올리고, 이후 반복 개발은 웹 업로드로 돌리는 흐름을 의도한다.
@@ -301,6 +312,7 @@ ctest --test-dir build-host
 - `docs/brainstorms/2026-03-27-mvp2-wifi-provisioning-web-brainstorm.md` — 2차 MVP
 - `docs/brainstorms/2026-03-29-final-product-spec-brainstorm.md` — 최종 제품 스펙 (정본)
 - `docs/plans/2026-03-29-feat-appconfig-gatekeeper-statemachine-plan.md` — 3차 구현 플랜
+- `.github/workflows/build.yml` — GitHub Actions CI (ESP-IDF 빌드 + 호스트 테스트)
 
 브레인스토밍 문서는 방향을 잡는 데 쓰고, 실제 구현 전환은 플랜 문서를 기준으로 한다.
 
