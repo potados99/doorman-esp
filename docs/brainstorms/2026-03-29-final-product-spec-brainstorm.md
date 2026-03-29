@@ -147,15 +147,26 @@ BT bond 정보는 ESP-IDF BT 스택이 자체 NVS 네임스페이스에 관리.
 **태스크/큐 아키텍처:**
 
 ```
-[BT Task] ──feed queue──> [SM Task] ──unlock queue──> [Control Task] → GPIO
-[HTTP Task] ──────────────────────────manual queue──> [Control Task]
+[HTTP Task] ──pairing queue──> [BT Task] ──feed queue──> [SM Task] ──unlock queue──> [Control Task] → GPIO
+[HTTP Task] ──────────────────────────────────────────────manual queue──> [Control Task]
 [HTTP Task] ──get/set──> [AppConfig Service] (lock)
 [Any Task] ──ESP_LOGI()──> Ring Buffer ──> [WS Handler] ──> 브라우저
 ```
 
-- **StateMachine Task**: 전용 태스크에서 구동. SM 인스턴스의 유일한 소유자. 입력은 큐로만 받음 (BT 결과 feed만). 기기 등록/삭제 이벤트 없음 — BT 스택이 bond 관리, bt_manager가 bonded peer만 feed. SM은 feed 오는 MAC에 대해 동적으로 상태 추적.
-- **Control Task**: 문 제어 단일 지점. StateMachine(자동)과 HTTP(수동) 모두 큐로 명령 수신. 한 번에 하나씩 동기 처리 (0.5초 GPIO 블로킹).
-- **AppConfig Service**: `getConfig()`/`setConfig()` with lock. 여러 태스크에서 읽기/쓰기.
+**태스크 간 통신 원칙:**
+- **고정 크기 메시지**: FreeRTOS Queue (3개 — BT 입력, SM 입력, Control 입력)
+- **가변 길이 로그**: FreeRTOS Ring Buffer (1개 — ESP_LOG → WS)
+- **설정 읽기/쓰기**: AppConfig 함수 호출 + 내부 lock (유일한 예외)
+- **그 외 직접 호출, atomic 플래그, 공유 변수 없음**
+
+Queue와 Ring Buffer 모두 multi-producer single-consumer thread-safe. 별도 뮤텍스 불필요.
+
+**태스크별 정의:**
+- **BT Task**: BT 스택 운용 + 페어링 윈도우 관리 + BLE/Classic 스캔. 입력: pairing 큐 (HTTP에서). 출력: feed 큐 (SM으로). Core 0.
+- **SM Task**: StateMachine 인스턴스의 **유일한 소유자**. 입력: feed 큐 (BT에서). 출력: unlock 큐 (Control로) + ESP_LOGI (Ring Buffer로). 기기 등록/삭제 이벤트 없음 — BT 스택이 bond 관리, SM은 feed 오는 MAC에 대해 동적 추적.
+- **Control Task**: 문 제어 단일 지점. 입력: unlock 큐 (SM + HTTP에서). 0.5초 GPIO 블로킹, 한 번에 하나.
+- **HTTP Task**: esp_httpd 내장. 웹 API + WS. 출력: pairing 큐 → BT, manual 큐 → Control, get/set → AppConfig.
+- **AppConfig Service**: 태스크 아님. `getConfig()`/`setConfig()` with lock + NVS 영속.
 
 **파일 구조:**
 
