@@ -80,6 +80,21 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
     if (dev->obs_count < DeviceState::kMaxRecentObs) {
         dev->obs_count++;
     }
+
+    /** 진입 진행 상황 로그: 윈도우 내 관측 수 표시 */
+    int count = 0;
+    for (int i = 0; i < dev->obs_count && i < DeviceState::kMaxRecentObs; ++i) {
+        if (now_ms - dev->recent_obs[i] <= config_.enter_window_ms) {
+            ++count;
+        }
+    }
+    if (count > 0) {
+        char s[18];
+        mac_to_str(mac, s, sizeof(s));
+        ESP_LOGI(TAG, "%s %lums내 %d/%lu건 (RSSI %d)",
+                 s, (unsigned long)config_.enter_window_ms,
+                 count, (unsigned long)config_.enter_min_count, rssi);
+    }
 }
 
 Action StateMachine::tick(uint32_t now_ms) {
