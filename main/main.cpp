@@ -7,6 +7,7 @@
 #include "wifi.h"
 
 #include <esp_log.h>
+#include <esp_ota_ops.h>
 #include <nvs_flash.h>
 
 static const char *TAG = "main";
@@ -19,6 +20,12 @@ extern "C" void app_main(void) {
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    /**
+     * OTA 롤백 방지: 이 펌웨어가 정상임을 bootloader에 확정한다.
+     * 이걸 안 부르면 전원 사이클 시 bootloader가 이전 파티션으로 롤백한다.
+     */
+    esp_ota_mark_app_valid_cancel_rollback();
 
     ESP_LOGI(TAG, "Starting Doorman...");
 
