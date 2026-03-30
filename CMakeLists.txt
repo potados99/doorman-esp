@@ -55,6 +55,22 @@ if(HOST_TEST)
     gtest_discover_tests(statemachine_test)
 else()
     # ── ESP-IDF 빌드 ──
+
+    # PROJECT_VER가 외부에서 안 주어지면 git revision count를 사용
+    if(NOT DEFINED PROJECT_VER)
+        execute_process(
+            COMMAND git rev-list --count HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE PROJECT_VER
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(NOT PROJECT_VER)
+            set(PROJECT_VER "0")
+        endif()
+    endif()
+
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+    set(PROJECT_VER "${PROJECT_VER}" CACHE STRING "Project version" FORCE)
     project(doorman)
 endif()

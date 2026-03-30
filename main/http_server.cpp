@@ -444,7 +444,7 @@ static esp_err_t build_info_handler(httpd_req_t *req) {
 
     const esp_app_desc_t *desc = esp_app_get_description();
     char buf[128];
-    snprintf(buf, sizeof(buf), "%s %s %s", desc->version, desc->date, desc->time);
+    snprintf(buf, sizeof(buf), "v%s · %s %s", desc->version, desc->date, desc->time);
     return send_text(req, "200 OK", buf);
 }
 
