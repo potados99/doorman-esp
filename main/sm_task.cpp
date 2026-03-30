@@ -42,12 +42,6 @@ static constexpr int kTickIntervalMs = 2000;
 
 static QueueHandle_t s_queue = nullptr;
 
-static char *mac_to_str(const uint8_t *mac, char *buf, size_t size) {
-    snprintf(buf, size, "%02x:%02x:%02x:%02x:%02x:%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    return buf;
-}
-
 /**
  * 시작 후 유예기간 (밀리초).
  * 재부팅 직후 이미 근처에 있는 기기들이 "최초 감지 → Unlock"으로
