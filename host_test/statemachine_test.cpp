@@ -184,40 +184,14 @@ TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
     EXPECT_EQ(sm.tick(t2), Action::Unlock);
 }
 
-// auto_unlock_enabled=false면 감지해도 Unlock 안 함
-TEST_F(StateMachineTest, AutoUnlockDisabledSuppressesUnlock) {
+// SM은 auto_unlock 여부와 무관하게 항상 Unlock을 판정한다 (드라이런).
+// 억제는 SM Task에서 수행. SM 레벨에서는 auto_unlock=false여도 Unlock 반환.
+TEST_F(StateMachineTest, AlwaysReturnsUnlockRegardlessOfAutoUnlockFlag) {
     cfg.auto_unlock_enabled = false;
     StateMachine sm(cfg);
 
     uint32_t t = feed_enter(sm, mac_a, 1000);
-    EXPECT_EQ(sm.tick(t), Action::NoOp);
-
-    // 타임아웃 경과 후 재감지 — 여전히 NoOp
-    EXPECT_EQ(sm.tick(t + 15001), Action::NoOp);
-    uint32_t t2 = feed_enter(sm, mac_a, t + 17000);
-    EXPECT_EQ(sm.tick(t2), Action::NoOp);
-}
-
-// auto_unlock_enabled=false에서 true로 변경 시, 이미 detected인 기기는 일괄 Unlock 안 함
-TEST_F(StateMachineTest, AutoUnlockReenabledDoesNotCauseFlood) {
-    cfg.auto_unlock_enabled = false;
-    StateMachine sm(cfg);
-
-    // 비활성 상태에서 감지 — Unlock 안 함
-    uint32_t t = feed_enter(sm, mac_a, 1000);
-    EXPECT_EQ(sm.tick(t), Action::NoOp);
-
-    // 다시 활성화 → 이미 detected인 기기는 "이미 처리됨"으로 마킹됨
-    cfg.auto_unlock_enabled = true;
-    sm.update_config(cfg);
-
-    // 이미 감지 중인 기기에 대해 Unlock이 발생하지 않아야 함 (일괄 Unlock 방지)
-    EXPECT_EQ(sm.tick(t + 1), Action::NoOp);
-
-    // 퇴실 후 재감지하면 Unlock
-    EXPECT_EQ(sm.tick(t + 15001), Action::NoOp);  // 타임아웃으로 미감지 전환
-    uint32_t t2 = feed_enter(sm, mac_a, t + 17000);
-    EXPECT_EQ(sm.tick(t2), Action::Unlock);
+    EXPECT_EQ(sm.tick(t), Action::Unlock);
 }
 
 // 오래된 슬롯 정리

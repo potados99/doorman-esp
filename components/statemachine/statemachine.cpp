@@ -139,8 +139,8 @@ Action StateMachine::tick(uint32_t now_ms) {
             }
         }
 
-        // 3. Unlock 판정
-        if (dev.detected && config_.auto_unlock_enabled) {
+        // 3. Unlock 판정 (auto_unlock 여부와 무관하게 항상 판정. 억제는 SM Task에서.)
+        if (dev.detected) {
             if (dev.last_unlock_ms == 0) {
                 // 최초 감지 → Unlock
                 dev.last_unlock_ms = now_ms;
@@ -180,24 +180,12 @@ int StateMachine::device_count() const {
 }
 
 void StateMachine::update_config(AppConfig cfg) {
-    bool was_disabled = !config_.auto_unlock_enabled;
-    bool now_enabled = cfg.auto_unlock_enabled;
     config_ = cfg;
-
-    // auto_unlock이 꺼졌다가 켜지면, 현재 detected인 기기들을
-    // "이미 한번 처리한 상태"로 마킹. 안 그러면 일괄 Unlock 폭주.
-    if (was_disabled && now_enabled) {
-        for (auto &dev : devices_) {
-            if (dev.valid && dev.detected) {
-                if (dev.last_unlock_ms == 0) {
-                    // 최초 감지 상태인 기기 — 이미 있는 것으로 간주
-                    // 다음에 퇴실 후 재감지될 때 Unlock 발행
-                    dev.last_unlock_ms = 1;  // 0이 아닌 값으로 설정 (최초 감지 조건 회피)
-                    dev.went_undetected = false;
-                }
-            }
-        }
-    }
+    /**
+     * auto_unlock 토글 시 flood 방지 hack 불필요.
+     * SM은 항상 Unlock을 판정하고, SM Task에서 auto_unlock/유예기간에 따라
+     * Control 전달을 억제하므로, SM 내부 상태는 항상 정상 추적된다.
+     */
 }
 
 void StateMachine::cleanup_stale(uint32_t now_ms) {

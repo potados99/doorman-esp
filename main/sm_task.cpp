@@ -80,12 +80,22 @@ static void sm_task(void *arg) {
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         Action action = sm.tick(now_ms);
 
+        /**
+         * Unlock 억제: SM은 항상 정상 판정(드라이런). 여기서만 실제 전달 여부 결정.
+         * - 유예기간: 재부팅 직후 기존 기기 flood 방지
+         * - auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
+         */
         if (action == Action::Unlock) {
-            if ((now_ms - start_ms) >= kStartupGraceMs) {
-                control_queue_send(ControlCommand::AutoUnlock);
-            } else {
-                ESP_LOGI(TAG, "Unlock suppressed (startup grace %lums remaining)",
+            AppConfig current_cfg = app_config_get();
+            bool in_grace = (now_ms - start_ms) < kStartupGraceMs;
+
+            if (in_grace) {
+                ESP_LOGI(TAG, "Unlock suppressed (grace %lums remaining)",
                          (unsigned long)(kStartupGraceMs - (now_ms - start_ms)));
+            } else if (!current_cfg.auto_unlock_enabled) {
+                ESP_LOGI(TAG, "Unlock suppressed (auto_unlock OFF)");
+            } else {
+                control_queue_send(ControlCommand::AutoUnlock);
             }
         }
     }
