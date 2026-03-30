@@ -56,6 +56,12 @@ if(HOST_TEST)
 else()
     # ── ESP-IDF 빌드 ──
 
+    # git HEAD가 바뀌면(커밋 후) CMake가 자동으로 reconfigure하여 버전 갱신
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/.git/HEAD"
+        "${CMAKE_SOURCE_DIR}/.git/refs/heads/main"
+    )
+
     # PROJECT_VER가 외부에서 안 주어지면 git revision count를 사용
     if(NOT DEFINED PROJECT_VER)
         execute_process(
