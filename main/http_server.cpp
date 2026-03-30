@@ -612,7 +612,14 @@ static esp_err_t ws_handler(httpd_req_t *req) {
         bool added = false;
 
         taskENTER_CRITICAL(&s_ws_lock);
+        /* 같은 fd가 이미 등록돼있으면 중복 방지 */
         for (int i = 0; i < kMaxWsClients; ++i) {
+            if (s_ws_fds[i] == fd) {
+                added = true;
+                break;
+            }
+        }
+        if (!added) for (int i = 0; i < kMaxWsClients; ++i) {
             if (s_ws_fds[i] < 0) {
                 s_ws_fds[i] = fd;
                 added = true;
