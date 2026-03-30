@@ -1,0 +1,22 @@
+---
+# ESP-IDF C/C++ 혼용 환경. 노이즈가 되는 체크만 끔.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-auto,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-implicit-bool-conversion
+
+# C-style cast, const 제안 등 ESP-IDF 매크로(ESP_LOGx 등)와 충돌하는 체크는
+# 위 Checks에서 제외하지 않고 clang-tidy 자체를 최소화하여 해결.
+
+HeaderFilterRegex: '(components|main)/.*\.h$'
+WarningsAsErrors: ''
