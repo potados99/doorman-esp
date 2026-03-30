@@ -14,6 +14,7 @@ static constexpr const char *kNvsNamespace = "door";
 static constexpr const char *kKeyCooldown = "cooldown";
 static constexpr const char *kKeyTimeout = "timeout";
 static constexpr const char *kKeyAutoUnlock = "auto";
+static constexpr const char *kKeyRssiThresh = "rssi";
 
 static AppConfig s_config = {};
 static SemaphoreHandle_t s_mutex = nullptr;
@@ -42,6 +43,10 @@ static void load_from_nvs() {
     uint8_t auto_val;
     if (nvs_get_u8(handle, kKeyAutoUnlock, &auto_val) == ESP_OK) {
         loaded.auto_unlock_enabled = (auto_val != 0);
+    }
+    int8_t rssi_val;
+    if (nvs_get_i8(handle, kKeyRssiThresh, &rssi_val) == ESP_OK) {
+        loaded.rssi_threshold = rssi_val;
     }
 
     nvs_close(handle);
@@ -73,6 +78,7 @@ static void save_to_nvs() {
     nvs_set_u32(handle, kKeyCooldown, s_config.cooldown_sec);
     nvs_set_u32(handle, kKeyTimeout, s_config.presence_timeout_ms);
     nvs_set_u8(handle, kKeyAutoUnlock, s_config.auto_unlock_enabled ? 1 : 0);
+    nvs_set_i8(handle, kKeyRssiThresh, s_config.rssi_threshold);
     nvs_commit(handle);
     nvs_close(handle);
 

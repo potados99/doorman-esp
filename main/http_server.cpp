@@ -435,6 +435,47 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
 }
 
+/** 튜닝 파라미터 조회: rssi_threshold, presence_timeout_ms */
+static esp_err_t tuning_get_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    AppConfig cfg = app_config_get();
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%d,%lu", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
+    return send_text(req, "200 OK", buf);
+}
+
+/** 튜닝 파라미터 변경: rssi=N&timeout=N (form-urlencoded) */
+static esp_err_t tuning_set_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    char body[128];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return send_text(req, "400 Bad Request", "Invalid request");
+    }
+
+    AppConfig cfg = app_config_get();
+
+    char val[16] = {};
+    if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
+        cfg.rssi_threshold = (int8_t)atoi(val);
+    }
+    if (httpd_query_key_value(body, "timeout", val, sizeof(val)) == ESP_OK) {
+        cfg.presence_timeout_ms = (uint32_t)atoi(val);
+    }
+
+    if (!validate(cfg)) {
+        return send_text(req, "400 Bad Request", "Invalid values");
+    }
+
+    app_config_set(cfg);
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%d,%lu", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
+    ESP_LOGI(TAG, "Tuning updated: rssi=%d timeout=%lums", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
+    return send_text(req, "200 OK", buf);
+}
+
 /**
  * WebSocket 핸들러.
  *
@@ -533,7 +574,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 14;
+    config.max_uri_handlers = 16;
 
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -559,9 +600,11 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/pairing/start",         HTTP_POST, pairing_start_handler,       false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
+            {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
+            {"/api/tuning",                HTTP_POST, tuning_set_handler,          false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 9);
+        ok = register_routes(server, sta_routes, 11);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

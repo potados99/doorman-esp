@@ -69,6 +69,15 @@
 
     <!-- Settings Tab -->
     <div id="tab-settings" class="tab-panel">
+        <!-- Tuning -->
+        <h2>Presence Tuning</h2>
+        <label for="rssiThresh">RSSI Threshold (dBm)</label>
+        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
+        <label for="presTimeout">Presence Timeout (ms)</label>
+        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
+        <button onclick="saveTuning()">Save</button>
+        <div id="tuningStatus" class="status"></div>
+
         <!-- Pairing -->
         <h2>Bluetooth Pairing</h2>
         <button class="btn-orange" onclick="startPairing()">Start Pairing (30s)</button>
@@ -290,6 +299,31 @@ function wsConnect() {
 }
 
 wsConnect();
+
+/* ── Load tuning params ── */
+function loadTuning() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/tuning');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            var parts = xhr.responseText.split(',');
+            document.getElementById('rssiThresh').value = parts[0];
+            document.getElementById('presTimeout').value = parts[1];
+        }
+    };
+    xhr.send();
+}
+
+function saveTuning() {
+    var rssi = document.getElementById('rssiThresh').value;
+    var timeout = document.getElementById('presTimeout').value;
+    show('tuningStatus', 'Saving...', 'run');
+    post('/api/tuning',
+         'rssi=' + rssi + '&timeout=' + timeout,
+         'tuningStatus', 'Saved! (RSSI=' + rssi + ', Timeout=' + timeout + 'ms)', false);
+}
+
+loadTuning();
 loadAutoUnlockStatus();
 </script>
 </body>

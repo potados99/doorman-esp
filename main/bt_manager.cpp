@@ -597,17 +597,11 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         }
         taskEXIT_CRITICAL(&s_state_lock);
 
-        char identity_str[18] = {};
-        bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
-
-        ESP_LOGI(kTag, "BLE present peer[%d] id=%s rssi=%d",
-                 matched_index, identity_str, scan_rst.rssi);
-
-        /* SM Task에 감지 이벤트 전달 */
+        /* SM Task에 감지 이벤트 전달 (RSSI 포함) */
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
             reinterpret_cast<const uint8_t(&)[6]>(peers_snap[matched_index].identity_addr),
-            true, now_ms);
+            true, now_ms, static_cast<int8_t>(scan_rst.rssi));
     }
 }
 

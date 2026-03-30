@@ -43,31 +43,36 @@ StateMachine::DeviceState *StateMachine::find_or_create(const uint8_t (&mac)[6])
     return nullptr;
 }
 
-void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms) {
+void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi) {
+    if (!seen) {
+        return;  // 현재 seen=false는 사용하지 않음 (타임아웃으로 처리)
+    }
+
+    /**
+     * RSSI 필터링: rssi != 0이면 BLE 신호이므로 임계값 체크.
+     * rssi == 0이면 Classic (RSSI 없음) → 필터링 건너뜀.
+     * 예: rssi=-75, threshold=-70 → -75 < -70 → 신호 약함 → 무시.
+     */
+    if (rssi != 0 && rssi < config_.rssi_threshold) {
+        return;
+    }
+
     DeviceState *dev = find_or_create(mac);
     if (!dev) {
         return;
     }
 
     bool was_detected = dev->detected;
+    dev->last_seen_ms = now_ms;
+    dev->detected = true;
 
-    if (seen) {
-        dev->last_seen_ms = now_ms;
-        dev->detected = true;
-
-        if (!was_detected) {
-            char s[18];
-            mac_to_str(mac, s, sizeof(s));
-            ESP_LOGI(TAG, "%s 재실", s);
-        }
-    } else {
-        dev->detected = false;
-        dev->went_undetected = true;
-
-        if (was_detected) {
-            char s[18];
-            mac_to_str(mac, s, sizeof(s));
-            ESP_LOGI(TAG, "%s 퇴실 (probe 실패)", s);
+    if (!was_detected) {
+        char s[18];
+        mac_to_str(mac, s, sizeof(s));
+        if (rssi != 0) {
+            ESP_LOGI(TAG, "%s 재실 (RSSI %d)", s, rssi);
+        } else {
+            ESP_LOGI(TAG, "%s 재실 (Classic)", s);
         }
     }
 }

@@ -21,6 +21,7 @@ struct FeedMsg {
     uint8_t mac[6];
     bool seen;
     uint32_t now_ms;
+    int8_t rssi;  // BLE RSSI (dBm). 0이면 Classic (RSSI 필터링 건너뜀).
 };
 
 /**
@@ -68,7 +69,7 @@ static void sm_task(void *arg) {
         sm.update_config(app_config_get());
 
         if (got == pdTRUE) {
-            sm.feed(msg.mac, msg.seen, msg.now_ms);
+            sm.feed(msg.mac, msg.seen, msg.now_ms, msg.rssi);
         }
 
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
@@ -104,7 +105,7 @@ void sm_task_start(AppConfig cfg) {
     ESP_LOGI(TAG, "SM task started (tick interval=%dms)", kTickIntervalMs);
 }
 
-void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms) {
+void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi) {
     if (s_queue == nullptr) {
         ESP_LOGE(TAG, "SM feed queue not initialized");
         return;
@@ -114,6 +115,7 @@ void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms) {
     std::memcpy(msg.mac, mac, 6);
     msg.seen = seen;
     msg.now_ms = now_ms;
+    msg.rssi = rssi;
 
     if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
         ESP_LOGW(TAG, "SM feed queue full — event dropped");

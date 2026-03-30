@@ -15,20 +15,14 @@
  * StateMachine은 이 태스크만 접근 — 별도 뮤텍스 불필요.
  */
 
-/**
- * SM 태스크를 생성하고 StateMachine을 초기화한다.
- *
- * cfg: NVS에서 로드한 앱 설정. cooldown/timeout 값이 StateMachine에 전달된다.
- * app_main()에서 config_service_init() 이후 호출.
- */
 void sm_task_start(AppConfig cfg);
 
 /**
  * BT 감지 이벤트를 SM 태스크의 피드 큐에 전송한다.
  *
- * BT Manager의 콜백(ISR이 아닌 BT 태스크 컨텍스트)에서 호출.
  * mac: 6바이트 BT MAC 주소 (BLE identity 또는 Classic BD_ADDR)
- * seen: true면 감지, false면 미감지
- * now_ms: 현재 시간(밀리초). esp_timer_get_time() / 1000으로 산출.
+ * seen: true면 감지 (현재 false는 사용 안 함)
+ * now_ms: 현재 시간(밀리초)
+ * rssi: BLE RSSI (dBm). 0이면 RSSI 필터링 건너뜀 (Classic용).
  */
-void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms);
+void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi = 0);

@@ -36,12 +36,14 @@ public:
      * BT/BLE 스캔 결과를 기록한다.
      *
      * seen=true:  기기가 감지됨. BLE adv 수신 또는 Classic probe 성공.
-     * seen=false: 기기가 미감지. Classic probe 실패 시 즉시 미감지 전환.
-     *             BLE는 항상 true로 호출 — "안 보인다"는 tick()의 타임아웃이 판단.
+     * seen=false: 현재 사용하지 않음 (probe 실패는 타임아웃으로 처리).
+     *
+     * rssi: BLE 신호 세기 (dBm). 0이면 RSSI 필터링 건너뜀 (Classic용).
+     *       config.rssi_threshold보다 약하면 seen=true여도 무시.
      *
      * now_ms를 명시적으로 받는 이유: 호스트 테스트에서 시간을 완전히 제어하기 위함.
      */
-    void feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms);
+    void feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi = 0);
 
     /**
      * 주기적으로 호출하여 시간 기반 상태 전이를 평가한다.

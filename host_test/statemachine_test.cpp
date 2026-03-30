@@ -3,7 +3,10 @@
 
 class StateMachineTest : public ::testing::Test {
 protected:
-    AppConfig cfg{.auto_unlock_enabled = true};  // 대부분의 테스트는 auto_unlock ON 상태에서 동작 검증
+    AppConfig cfg{
+        .presence_timeout_ms = 5000,      // 테스트에서 일관된 시간 기준
+        .auto_unlock_enabled = true,
+    };
     const uint8_t mac_a[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
     const uint8_t mac_b[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x02};
 };
@@ -87,27 +90,14 @@ TEST_F(StateMachineTest, ZeroCooldownRetriggersImmediately) {
     EXPECT_EQ(sm.tick(6002), Action::Unlock);
 }
 
-// feed(false) -> 즉시 미감지 전환
-TEST_F(StateMachineTest, FeedNotSeenCausesImmediateUndetected) {
+// seen=false는 현재 무시됨 (타임아웃으로 통일). 타임아웃 경유 퇴실 후 재진입 테스트.
+TEST_F(StateMachineTest, TimeoutThenRedetectionAfterCooldownReturnsUnlock) {
     StateMachine sm(cfg);
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
 
-    // feed(false)로 즉시 미감지
-    sm.feed(mac_a, false, 2000);
-
-    // 쿨다운 미경과 -> NoOp
-    EXPECT_EQ(sm.tick(2000), Action::NoOp);
-}
-
-// feed(false) 후 feed(true) + 쿨다운 경과 -> Unlock
-TEST_F(StateMachineTest, FeedNotSeenThenRedetectionAfterCooldownReturnsUnlock) {
-    StateMachine sm(cfg);
-    sm.feed(mac_a, true, 1000);
-    EXPECT_EQ(sm.tick(1000), Action::Unlock);
-
-    // feed(false)로 즉시 미감지
-    sm.feed(mac_a, false, 2000);
+    // 타임아웃으로 미감지 전환
+    EXPECT_EQ(sm.tick(6001), Action::NoOp);
 
     // 쿨다운 경과 후 재감지
     sm.feed(mac_a, true, 121001);
