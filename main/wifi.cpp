@@ -18,7 +18,7 @@ static const char *TAG = "wifi";
 static const char *kApSsid = "Doorman-Setup";
 static const char *kApPassword = "12345678";
 static const int kStaTimeoutMs = 15000;
-static const int kMaxRetries = 3;
+static const int kMaxRetries = 5;
 
 static const int CONNECTED_BIT = BIT0;
 static const int FAIL_BIT = BIT1;
