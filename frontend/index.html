@@ -496,7 +496,7 @@ function saveTuning() {
     show('tuningStatus', 'Saving...', 'run');
     post('/api/tuning',
          'rssi=' + rssi + '&timeout=' + timeout + '&enter_window=' + enterWindow + '&enter_count=' + enterCount,
-         'tuningStatus', 'Saved! (RSSI=' + rssi + ', Timeout=' + timeout + 'ms, Window=' + enterWindow + 'ms, Count=' + enterCount + ')', false);
+         'tuningStatus', 'Saved!', false);
 }
 
 /* ── Bonded Devices ── */
