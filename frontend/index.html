@@ -40,6 +40,17 @@
             padding: 8px; border-radius: 8px;
             white-space: pre-wrap; word-break: break-all;
         }
+        #logArea.fullscreen {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 999;
+            height: auto;
+            border-radius: 0;
+            margin: 0;
+        }
+        .device-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85rem; }
+        .device-item button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.8rem; }
+        #tagFilters label { display: inline-block; margin-right: 8px; font-weight: normal; cursor: pointer; }
         .ws-status { font-size: 0.8rem; margin-bottom: 6px; color: #656d76; }
         .ws-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
         .dot-ok { background: #238636; }
@@ -64,11 +75,19 @@
 
         <h2>Live Log</h2>
         <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
+        <div id="tagFilters" style="margin-bottom:6px;font-size:0.8rem;"></div>
+        <button onclick="toggleFullscreen()" id="fsBtn" style="float:right;padding:4px 8px;font-size:0.8rem;margin-bottom:4px;">&#x26F6; Fullscreen</button>
+        <div style="clear:both;"></div>
         <div id="logArea"></div>
     </div>
 
     <!-- Settings Tab -->
     <div id="tab-settings" class="tab-panel">
+        <!-- Bonded Devices -->
+        <h2>Bonded Devices</h2>
+        <div id="deviceList">Loading...</div>
+        <div id="deviceStatus" class="status"></div>
+
         <!-- Tuning -->
         <h2>Presence Tuning</h2>
         <label for="rssiThresh">RSSI Threshold (dBm)</label>
@@ -251,10 +270,79 @@ function updateWifi() {
          true);
 }
 
-/* ── WebSocket Log Streaming ── */
+/* ── Fullscreen toggle ── */
+function toggleFullscreen() {
+    var area = document.getElementById('logArea');
+    area.classList.toggle('fullscreen');
+    var btn = document.getElementById('fsBtn');
+    btn.textContent = area.classList.contains('fullscreen') ? '\u2715 Exit' : '\u26F6 Fullscreen';
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var area = document.getElementById('logArea');
+        if (area.classList.contains('fullscreen')) toggleFullscreen();
+    }
+});
+
+/* ── WebSocket Log Streaming with Tag Filter ── */
 var MAX_LOG_LINES = 500;
-var logLines = 0;
+var rawLogs = [];
+var knownTags = {};
+var allChecked = true;
 var ws = null;
+var tagRegex = / \) ([a-zA-Z_][a-zA-Z0-9_]*):/;
+
+function extractTag(line) {
+    var m = line.match(tagRegex);
+    return m ? m[1] : null;
+}
+
+function renderTagFilters() {
+    var container = document.getElementById('tagFilters');
+    var html = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
+    var tags = Object.keys(knownTags).sort();
+    for (var i = 0; i < tags.length; i++) {
+        html += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
+    }
+    container.innerHTML = html;
+}
+
+function toggleAllTags(checked) {
+    allChecked = checked;
+    var tags = Object.keys(knownTags);
+    for (var i = 0; i < tags.length; i++) {
+        knownTags[tags[i]] = checked;
+    }
+    renderTagFilters();
+    renderFilteredLogs();
+}
+
+function onTagChange() {
+    var boxes = document.querySelectorAll('#tagFilters input[data-tag]');
+    var allOn = true;
+    for (var i = 0; i < boxes.length; i++) {
+        knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked;
+        if (!boxes[i].checked) allOn = false;
+    }
+    allChecked = allOn;
+    var allBox = document.getElementById('tagAll');
+    if (allBox) allBox.checked = allOn;
+    renderFilteredLogs();
+}
+
+function renderFilteredLogs() {
+    var area = document.getElementById('logArea');
+    var filtered = [];
+    for (var i = 0; i < rawLogs.length; i++) {
+        var tag = extractTag(rawLogs[i]);
+        if (tag === null || knownTags[tag]) {
+            filtered.push(rawLogs[i]);
+        }
+    }
+    area.textContent = filtered.join('\n');
+    area.scrollTop = area.scrollHeight;
+}
 
 function wsConnect() {
     var host = location.host || 'doorman.local';
@@ -267,22 +355,28 @@ function wsConnect() {
     };
 
     ws.onmessage = function(evt) {
-        var area = document.getElementById('logArea');
-        area.textContent += evt.data;
-        logLines += (evt.data.match(/\n/g) || []).length;
+        var newLines = evt.data.split('\n');
+        var needFilterUpdate = false;
 
-        /* Trim to MAX_LOG_LINES to prevent memory bloat */
-        if (logLines > MAX_LOG_LINES) {
-            var lines = area.textContent.split('\n');
-            var excess = lines.length - MAX_LOG_LINES;
-            if (excess > 0) {
-                area.textContent = lines.slice(excess).join('\n');
-                logLines = MAX_LOG_LINES;
+        for (var i = 0; i < newLines.length; i++) {
+            var line = newLines[i];
+            if (line === '' && i === newLines.length - 1) continue;  /* trailing newline */
+            rawLogs.push(line);
+
+            var tag = extractTag(line);
+            if (tag && !(tag in knownTags)) {
+                knownTags[tag] = true;
+                needFilterUpdate = true;
             }
         }
 
-        /* Auto-scroll to bottom */
-        area.scrollTop = area.scrollHeight;
+        /* Trim to MAX_LOG_LINES */
+        if (rawLogs.length > MAX_LOG_LINES) {
+            rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
+        }
+
+        if (needFilterUpdate) renderTagFilters();
+        renderFilteredLogs();
     };
 
     ws.onclose = function() {
@@ -323,8 +417,71 @@ function saveTuning() {
          'tuningStatus', 'Saved! (RSSI=' + rssi + ', Timeout=' + timeout + 'ms)', false);
 }
 
+/* ── Bonded Devices ── */
+function loadDevices() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/devices');
+    xhr.onload = function() {
+        var container = document.getElementById('deviceList');
+        if (xhr.status !== 200) {
+            container.textContent = 'Error loading devices';
+            return;
+        }
+        var text = xhr.responseText.trim();
+        if (!text) {
+            container.textContent = 'No bonded devices';
+            return;
+        }
+        var macs = text.split('\n');
+        container.innerHTML = '';
+        for (var i = 0; i < macs.length; i++) {
+            var mac = macs[i].trim();
+            if (!mac) continue;
+            var div = document.createElement('div');
+            div.className = 'device-item';
+            var span = document.createElement('span');
+            span.textContent = mac;
+            var btn = document.createElement('button');
+            btn.textContent = 'Delete';
+            btn.className = 'btn-danger';
+            btn.setAttribute('data-mac', mac);
+            btn.onclick = function() {
+                var m = this.getAttribute('data-mac');
+                deleteDevice(m);
+            };
+            div.appendChild(span);
+            div.appendChild(btn);
+            container.appendChild(div);
+        }
+    };
+    xhr.onerror = function() {
+        document.getElementById('deviceList').textContent = 'Connection error';
+    };
+    xhr.send();
+}
+
+function deleteDevice(mac) {
+    show('deviceStatus', 'Deleting ' + mac + '...', 'run');
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/devices/delete');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show('deviceStatus', 'Deleted ' + mac, 'ok');
+            setTimeout(loadDevices, 500);
+        } else {
+            show('deviceStatus', 'Error: ' + xhr.responseText, 'err');
+        }
+    };
+    xhr.onerror = function() {
+        show('deviceStatus', 'Connection lost.', 'err');
+    };
+    xhr.send('mac=' + encodeURIComponent(mac));
+}
+
 loadTuning();
 loadAutoUnlockStatus();
+loadDevices();
 </script>
 </body>
 </html>

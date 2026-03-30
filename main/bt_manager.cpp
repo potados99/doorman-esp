@@ -51,15 +51,20 @@ constexpr esp_spp_role_t kSppRole = ESP_SPP_ROLE_SLAVE;
 
 constexpr uint8_t kBleAdvFlags = ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_DMT_CONTROLLER_SPT | ESP_BLE_ADV_FLAG_DMT_HOST_SPT;
 
-// ── 페어링 큐 메시지 ──
+// ── BT 태스크 큐 메시지 ──
 
-enum class PairingCmd { StartPairing };
+enum class BtCmdType { StartPairing, RemoveBond };
+
+struct BtCmd {
+    BtCmdType type;
+    uint8_t mac[6];  /** RemoveBond 시 삭제 대상 MAC */
+};
 
 /**
- * 페어링 큐: HTTP 핸들러 → BT 태스크.
- * 깊이 1이면 충분 — 중복 요청은 무의미.
+ * BT 명령 큐: HTTP 핸들러 → BT 태스크.
+ * 깊이 4면 충분 — 페어링 + 삭제 요청이 겹칠 수 있으므로 여유 확보.
  */
-static QueueHandle_t s_pairing_queue = nullptr;
+static QueueHandle_t s_bt_cmd_queue = nullptr;
 
 // ── BLE Advertising 데이터 (컴파일 타임 구성) ──
 
@@ -690,10 +695,37 @@ void presence_task(void *) {
     while (true) {
         TickType_t now = xTaskGetTickCount();
 
-        /* 페어링 큐 확인: HTTP에서 온 페어링 요청 처리 */
-        PairingCmd cmd;
-        if (xQueueReceive(s_pairing_queue, &cmd, 0) == pdTRUE) {
-            open_pairing_window();
+        /* BT 명령 큐 확인: HTTP에서 온 페어링/삭제 요청 처리 */
+        BtCmd cmd;
+        if (xQueueReceive(s_bt_cmd_queue, &cmd, 0) == pdTRUE) {
+            switch (cmd.type) {
+            case BtCmdType::StartPairing:
+                open_pairing_window();
+                break;
+            case BtCmdType::RemoveBond: {
+                char addr_str[18] = {};
+                bda_to_str(cmd.mac, addr_str, sizeof(addr_str));
+
+                esp_err_t ble_err = esp_ble_remove_bond_device(cmd.mac);
+                if (ble_err == ESP_OK) {
+                    ESP_LOGI(kTag, "BLE bond removed: %s", addr_str);
+                } else {
+                    ESP_LOGW(kTag, "BLE bond remove skipped: %s (%s)", addr_str, esp_err_to_name(ble_err));
+                }
+
+                esp_err_t classic_err = esp_bt_gap_remove_bond_device(cmd.mac);
+                if (classic_err == ESP_OK) {
+                    ESP_LOGI(kTag, "Classic bond removed: %s", addr_str);
+                } else {
+                    ESP_LOGW(kTag, "Classic bond remove skipped: %s (%s)", addr_str, esp_err_to_name(classic_err));
+                }
+
+                /* 삭제 후 bond 캐시 갱신 */
+                refresh_ble_bond_cache();
+                refresh_classic_bond_cache();
+                break;
+            }
+            }
         }
 
         if (s_pairing_mode.load()) {
@@ -1010,9 +1042,9 @@ void ble_gatts_callback(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_
 // ── Public API ──
 
 esp_err_t bt_manager_start() {
-    /* 페어링 큐 생성 */
-    s_pairing_queue = xQueueCreate(1, sizeof(PairingCmd));
-    configASSERT(s_pairing_queue);
+    /* BT 명령 큐 생성 */
+    s_bt_cmd_queue = xQueueCreate(4, sizeof(BtCmd));
+    configASSERT(s_bt_cmd_queue);
 
     /* 부팅 시 30초 페어링 윈도우 자동 시작 */
     s_pairing_mode.store(true);
@@ -1101,15 +1133,34 @@ esp_err_t bt_manager_start() {
 }
 
 void bt_request_pairing() {
-    if (s_pairing_queue == nullptr) {
-        ESP_LOGE(kTag, "BT pairing queue not initialized");
+    if (s_bt_cmd_queue == nullptr) {
+        ESP_LOGE(kTag, "BT command queue not initialized");
         return;
     }
 
-    PairingCmd cmd = PairingCmd::StartPairing;
-    if (xQueueSend(s_pairing_queue, &cmd, 0) != pdTRUE) {
+    BtCmd cmd = {};
+    cmd.type = BtCmdType::StartPairing;
+    if (xQueueSend(s_bt_cmd_queue, &cmd, 0) != pdTRUE) {
         ESP_LOGW(kTag, "Pairing request dropped — queue full or already active");
     } else {
         ESP_LOGI(kTag, "Pairing requested via HTTP");
+    }
+}
+
+void bt_remove_bond(const uint8_t (&mac)[6]) {
+    if (s_bt_cmd_queue == nullptr) {
+        ESP_LOGE(kTag, "BT command queue not initialized");
+        return;
+    }
+
+    BtCmd cmd = {};
+    cmd.type = BtCmdType::RemoveBond;
+    std::memcpy(cmd.mac, mac, 6);
+    if (xQueueSend(s_bt_cmd_queue, &cmd, 0) != pdTRUE) {
+        ESP_LOGW(kTag, "Bond remove request dropped — queue full");
+    } else {
+        char addr_str[18] = {};
+        bda_to_str(mac, addr_str, sizeof(addr_str));
+        ESP_LOGI(kTag, "Bond remove requested via HTTP: %s", addr_str);
     }
 }

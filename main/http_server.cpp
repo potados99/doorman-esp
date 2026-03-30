@@ -10,6 +10,8 @@
 #include <cstdarg>
 #include <cstring>
 
+#include <esp_gap_ble_api.h>
+#include <esp_gap_bt_api.h>
 #include <esp_log.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
@@ -476,6 +478,88 @@ static esp_err_t tuning_set_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", buf);
 }
 
+/** 본딩된 기기 목록 조회. BLE+Classic 양쪽에서 조회 후 중복 MAC 제거. */
+static esp_err_t devices_list_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    /* MAC 주소 수집용 버퍼 (BLE 최대 15 + Classic 최대 15) */
+    uint8_t macs[30][6] = {};
+    int mac_count = 0;
+
+    /* BLE 본딩 목록 조회 */
+    {
+        int dev_num = 15;
+        esp_ble_bond_dev_t dev_list[15] = {};
+        esp_err_t err = esp_ble_get_bond_device_list(&dev_num, dev_list);
+        if (err == ESP_OK) {
+            for (int i = 0; i < dev_num && mac_count < 30; ++i) {
+                std::memcpy(macs[mac_count++], dev_list[i].bd_addr, 6);
+            }
+        }
+    }
+
+    /* Classic 본딩 목록 조회 */
+    {
+        int dev_num = 15;
+        esp_bd_addr_t dev_list[15] = {};
+        esp_err_t err = esp_bt_gap_get_bond_device_list(&dev_num, dev_list);
+        if (err == ESP_OK) {
+            for (int i = 0; i < dev_num && mac_count < 30; ++i) {
+                /* 중복 MAC 제거 */
+                bool dup = false;
+                for (int j = 0; j < mac_count; ++j) {
+                    if (std::memcmp(macs[j], dev_list[i], 6) == 0) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (!dup) {
+                    std::memcpy(macs[mac_count++], dev_list[i], 6);
+                }
+            }
+        }
+    }
+
+    /* 응답 생성: 줄바꿈 구분 MAC 목록 */
+    httpd_resp_set_type(req, "text/plain");
+    char line[20];
+    for (int i = 0; i < mac_count; ++i) {
+        snprintf(line, sizeof(line), "%02X:%02X:%02X:%02X:%02X:%02X\n",
+                      macs[i][0], macs[i][1], macs[i][2],
+                      macs[i][3], macs[i][4], macs[i][5]);
+        httpd_resp_sendstr_chunk(req, line);
+    }
+    return httpd_resp_sendstr_chunk(req, nullptr);
+}
+
+/** 본딩된 기기 삭제. body: mac=AA:BB:CC:DD:EE:FF */
+static esp_err_t devices_delete_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    char body[64];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return send_text(req, "400 Bad Request", "Invalid request");
+    }
+
+    char mac_str[24] = {};
+    if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
+        return send_text(req, "400 Bad Request", "mac parameter is required");
+    }
+    url_decode(mac_str);
+
+    /* MAC 문자열 파싱 (AA:BB:CC:DD:EE:FF) */
+    uint8_t mac[6] = {};
+    unsigned int m[6] = {};
+    if (sscanf(mac_str, "%02X:%02X:%02X:%02X:%02X:%02X",
+                    &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6) {
+        return send_text(req, "400 Bad Request", "Invalid MAC format");
+    }
+    for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(m[i]);
+
+    bt_remove_bond(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    return send_text(req, "200 OK", "OK");
+}
+
 /**
  * WebSocket 핸들러.
  *
@@ -574,7 +658,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
 
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -602,9 +686,11 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
             {"/api/tuning",                HTTP_POST, tuning_set_handler,          false},
+            {"/api/devices",               HTTP_GET,  devices_list_handler,        false},
+            {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 11);
+        ok = register_routes(server, sta_routes, 13);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

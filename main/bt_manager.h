@@ -43,3 +43,12 @@ esp_err_t bt_manager_start();
  * 이미 페어링 중이면 무시.
  */
 void bt_request_pairing();
+
+/**
+ * 본딩된 기기를 삭제한다 (BLE + Classic 양쪽).
+ *
+ * HTTP 핸들러에서 호출. 큐를 통해 BT 태스크에 전달되므로
+ * BT API 호출은 항상 BT 태스크 컨텍스트에서 실행된다.
+ * 없는 쪽은 에러를 무시한다.
+ */
+void bt_remove_bond(const uint8_t (&mac)[6]);
