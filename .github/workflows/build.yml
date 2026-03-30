@@ -1,11 +1,10 @@
-name: Build & Release
+name: Build & Test
 
 on:
   push:
-    tags: ['v*']
-
-permissions:
-  contents: write
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -16,35 +15,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git rev-list --count에 전체 히스토리 필요
 
-      - name: Build host tests
-        run: cmake -S . -B build-host -DHOST_TEST=ON
+      - name: Host tests
+        run: |
+          cmake -S . -B build-host -DHOST_TEST=ON
+          cmake --build build-host
+          ctest --test-dir build-host --output-on-failure
         shell: bash
-
-      - name: Run host tests
-        run: cmake --build build-host && ctest --test-dir build-host --output-on-failure
-        shell: bash
-
-      - name: Extract version from tag
-        id: version
-        run: echo "ver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build firmware
-        run: idf.py -DPROJECT_VER=${{ steps.version.outputs.ver }} build
+        run: idf.py build
         shell: bash
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware
-          path: |
-            build/doorman.bin
-            build/doorman.elf
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name }}
-          files: |
-            build/doorman.bin
-            build/doorman.elf
