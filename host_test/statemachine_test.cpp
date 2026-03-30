@@ -3,7 +3,7 @@
 
 class StateMachineTest : public ::testing::Test {
 protected:
-    AppConfig cfg;
+    AppConfig cfg{.auto_unlock_enabled = true};  // 대부분의 테스트는 auto_unlock ON 상태에서 동작 검증
     const uint8_t mac_a[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
     const uint8_t mac_b[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x02};
 };

@@ -30,7 +30,7 @@ struct AppConfig {
      * 상태 추적(감지/미감지/타임아웃)은 계속 동작하여, 다시 켰을 때 즉시 정상 동작.
      * 웹 UI의 수동 문열기(ManualUnlock)는 이 값과 무관하게 항상 가능.
      */
-    bool auto_unlock_enabled = true;
+    bool auto_unlock_enabled = false;
 };
 
 /**
