@@ -434,6 +434,16 @@ static esp_err_t pairing_status_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", bt_is_pairing() ? "on" : "off");
 }
 
+/** 빌드 정보 조회. esp_app_desc에서 버전, 빌드 날짜/시간 반환. */
+static esp_err_t build_info_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    const esp_app_desc_t *desc = esp_app_get_description();
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s %s %s", desc->version, desc->date, desc->time);
+    return send_text(req, "200 OK", buf);
+}
+
 /** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
 static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
@@ -727,6 +737,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/wifi/update",           HTTP_POST, wifi_update_handler,         false},
             {"/api/pairing/toggle",        HTTP_POST, pairing_toggle_handler,      false},
             {"/api/pairing/status",        HTTP_GET,  pairing_status_handler,      false},
+            {"/api/build-info",            HTTP_GET,  build_info_handler,          false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
@@ -735,7 +746,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 14);
+        ok = register_routes(server, sta_routes, 15);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

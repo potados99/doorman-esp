@@ -47,24 +47,30 @@ static char *mac_to_str(const uint8_t *mac, char *buf, size_t size) {
     return buf;
 }
 
+/**
+ * 시작 후 유예기간 (밀리초).
+ * 재부팅 직후 이미 근처에 있는 기기들이 "최초 감지 → Unlock"으로
+ * 문을 여는 걸 방지한다. 유예기간 동안 SM은 정상 동작(감지 추적)하되
+ * Unlock만 Control Task에 안 보낸다. SM 내부적으로 last_unlock_ms가
+ * 세팅되므로, 유예 후에는 이미 "처리 완료" 상태.
+ */
+static constexpr uint32_t kStartupGraceMs = 15000;
+
 static void sm_task(void *arg) {
     auto *cfg = static_cast<AppConfig *>(arg);
     StateMachine sm(*cfg);
     delete cfg;
 
-    ESP_LOGI(TAG, "StateMachine initialized (timeout=%lums)",
-             (unsigned long)sm.config().presence_timeout_ms);
+    uint32_t start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+
+    ESP_LOGI(TAG, "StateMachine initialized (timeout=%lums, grace=%lums)",
+             (unsigned long)sm.config().presence_timeout_ms,
+             (unsigned long)kStartupGraceMs);
 
     FeedMsg msg;
     while (true) {
-        /**
-         * 타임아웃 = tick 주기.
-         * 메시지가 있으면 feed() 처리, 타임아웃이면 그냥 tick()으로 진행.
-         * 이 패턴으로 별도 타이머 없이 주기적 tick을 보장한다.
-         */
         BaseType_t got = xQueueReceive(s_queue, &msg, pdMS_TO_TICKS(kTickIntervalMs));
 
-        /* 매 tick마다 최신 config 반영 (auto_unlock 토글 등 런타임 변경) */
         sm.update_config(app_config_get());
 
         if (got == pdTRUE) {
@@ -75,7 +81,12 @@ static void sm_task(void *arg) {
         Action action = sm.tick(now_ms);
 
         if (action == Action::Unlock) {
-            control_queue_send(ControlCommand::AutoUnlock);
+            if ((now_ms - start_ms) >= kStartupGraceMs) {
+                control_queue_send(ControlCommand::AutoUnlock);
+            } else {
+                ESP_LOGI(TAG, "Unlock suppressed (startup grace %lums remaining)",
+                         (unsigned long)(kStartupGraceMs - (now_ms - start_ms)));
+            }
         }
     }
 }

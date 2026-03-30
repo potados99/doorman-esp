@@ -15,14 +15,16 @@ for arg in "$@"; do
 done
 
 usage() {
-    echo "Usage: $0 <mac> <firmware.bin> <user> <pass> [-v] [-n]"
+    echo "Usage: $0 <target> <firmware.bin> <user> <pass> [-v] [-n]"
     echo ""
-    echo "  mac       Device MAC address (e.g. c0:5d:89:df:1f:f0)"
+    echo "  target    MAC address (c0:5d:89:df:1f:f0)"
+    echo "            or host:port (office.cartanova.ai:20080)"
+    echo "            or IP address (192.168.1.42)"
     echo "  firmware  Path to .bin file"
     echo "  user      HTTP Basic Auth username"
     echo "  pass      HTTP Basic Auth password"
     echo "  -v        Verbose output"
-    echo "  -n        Dry run (resolve IP only, skip upload)"
+    echo "  -n        Dry run (resolve only, skip upload)"
     exit 1
 }
 
@@ -30,42 +32,56 @@ log() { $VERBOSE && echo "[*] $*" || true; }
 
 [ ${#ARGS[@]} -eq 4 ] || usage
 
-MAC=$(echo "${ARGS[0]}" | tr '[:upper:]' '[:lower:]' | tr '-' ':')
+TARGET="${ARGS[0]}"
 FW="${ARGS[1]}"
 USER="${ARGS[2]}"
 PASS="${ARGS[3]}"
 
 [ -f "$FW" ] || { echo "Error: $FW not found"; exit 1; }
 
-# ── MAC → IP 변환 ──
+# ── Target 판별: MAC vs host(:port) ──
 
-log "Detecting Wi-Fi interface..."
-WIFI_IF=$(networksetup -listallhardwareports 2>/dev/null \
-    | awk '/Wi-Fi/{getline; print $2}')
-WIFI_IF=${WIFI_IF:-en0}
-log "Interface: $WIFI_IF"
+is_mac() { [[ "$1" =~ ^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$ ]]; }
 
-BCAST=$(ifconfig "$WIFI_IF" 2>/dev/null | awk '/broadcast/{print $NF}')
-if [ -n "$BCAST" ]; then
-    log "Broadcast ping to $BCAST (ARP cache refresh)..."
-    ping -c 1 -t 1 "$BCAST" >/dev/null 2>&1 || true
+if is_mac "$TARGET"; then
+    # MAC → ARP → IP
+    MAC=$(echo "$TARGET" | tr '[:upper:]' '[:lower:]' | tr '-' ':')
+
+    log "Detecting Wi-Fi interface..."
+    WIFI_IF=$(networksetup -listallhardwareports 2>/dev/null \
+        | awk '/Wi-Fi/{getline; print $2}')
+    WIFI_IF=${WIFI_IF:-en0}
+    log "Interface: $WIFI_IF"
+
+    BCAST=$(ifconfig "$WIFI_IF" 2>/dev/null | awk '/broadcast/{print $NF}')
+    if [ -n "$BCAST" ]; then
+        log "Broadcast ping to $BCAST (ARP cache refresh)..."
+        ping -c 1 -t 1 "$BCAST" >/dev/null 2>&1 || true
+    else
+        log "No broadcast address found, skipping ARP refresh"
+    fi
+
+    log "Searching ARP table for $MAC..."
+    IP=$(arp -an | grep -i "$MAC" | head -1 | grep -oE '\([0-9.]+\)' | tr -d '()')
+
+    if [ -z "$IP" ]; then
+        echo "Error: MAC $MAC not found in ARP table."
+        echo "Ensure the device is connected to the same network."
+        exit 1
+    fi
+
+    HOST="$IP"
+    LABEL="$IP ($MAC)"
 else
-    log "No broadcast address found, skipping ARP refresh"
-fi
-
-log "Searching ARP table for $MAC..."
-IP=$(arp -an | grep -i "$MAC" | head -1 | grep -oE '\([0-9.]+\)' | tr -d '()')
-
-if [ -z "$IP" ]; then
-    echo "Error: MAC $MAC not found in ARP table."
-    echo "Ensure the device is connected to the same network."
-    exit 1
+    # host:port 또는 host 그대로 사용
+    HOST="$TARGET"
+    LABEL="$TARGET"
 fi
 
 # ── OTA 업로드 ──
 
 SIZE=$(wc -c < "$FW" | tr -d ' ')
-echo "Device : $IP ($MAC)"
+echo "Device : $LABEL"
 echo "Firmware: $(basename "$FW") ($SIZE bytes)"
 echo ""
 
@@ -74,7 +90,7 @@ if $DRY_RUN; then
     exit 0
 fi
 
-log "POST http://$IP/api/firmware/upload"
+log "POST http://$HOST/api/firmware/upload"
 
 curl -u "$USER:$PASS" \
      -X POST \
@@ -82,7 +98,7 @@ curl -u "$USER:$PASS" \
      --data-binary "@$FW" \
      --progress-bar \
      --max-time 120 \
-     "http://$IP/api/firmware/upload" \
+     "http://$HOST/api/firmware/upload" \
     | cat
 
 echo ""

@@ -73,6 +73,7 @@
 </head>
 <body>
     <h1>Doorman</h1>
+    <p id="buildInfo" style="font-size:0.75rem;color:#8b949e;margin:-8px 0 12px;">Build: loading...</p>
 
     <div class="tabs">
         <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
@@ -531,6 +532,18 @@ loadTuning();
 loadAutoUnlockStatus();
 loadDevices();
 loadPairingStatus();
+
+/* ── Build info ── */
+(function() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/build-info');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            document.getElementById('buildInfo').textContent = 'Build: ' + xhr.responseText;
+        }
+    };
+    xhr.send();
+})();
 </script>
 </body>
 </html>
