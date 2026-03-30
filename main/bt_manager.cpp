@@ -1176,3 +1176,37 @@ void bt_remove_bond(const uint8_t (&mac)[6]) {
         ESP_LOGI(kTag, "Bond remove requested via HTTP: %s", addr_str);
     }
 }
+
+int bt_get_bonded_devices(uint8_t (*out_macs)[6], int max_count) {
+    int count = 0;
+
+    /**
+     * BLE: peer 캐시의 identity_addr를 사용.
+     * esp_ble_get_bond_device_list()의 bd_addr는 본딩 시 사용된 주소(RPA 등)일 수 있어서
+     * 실제 identity address와 다를 수 있다. peer 캐시는 pid_key.static_addr를 쓰므로 정확.
+     */
+    taskENTER_CRITICAL(&s_state_lock);
+    for (int i = 0; i < s_ble_peer_count && count < max_count; ++i) {
+        if (s_ble_peers[i].valid) {
+            std::memcpy(out_macs[count++], s_ble_peers[i].identity_addr, 6);
+        }
+    }
+    for (int i = 0; i < s_classic_peer_count && count < max_count; ++i) {
+        if (s_classic_peers[i].valid) {
+            /* Classic은 중복 체크 (BLE identity와 겹칠 수 있음) */
+            bool dup = false;
+            for (int j = 0; j < count; ++j) {
+                if (std::memcmp(out_macs[j], s_classic_peers[i].bda, 6) == 0) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) {
+                std::memcpy(out_macs[count++], s_classic_peers[i].bda, 6);
+            }
+        }
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    return count;
+}

@@ -524,47 +524,17 @@ static esp_err_t tuning_set_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", buf);
 }
 
-/** 본딩된 기기 목록 조회. BLE+Classic 양쪽에서 조회 후 중복 MAC 제거. */
+/**
+ * 본딩된 기기 목록 조회.
+ * bt_manager의 peer 캐시에서 identity address를 가져온다.
+ * esp_ble_get_bond_device_list()의 bd_addr는 본딩 시 사용된 주소(RPA)일 수 있어서
+ * 실제 identity address와 다를 수 있으므로, peer 캐시가 정확하다.
+ */
 static esp_err_t devices_list_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    /* MAC 주소 수집용 버퍼 (BLE 최대 15 + Classic 최대 15) */
     uint8_t macs[30][6] = {};
-    int mac_count = 0;
-
-    /* BLE 본딩 목록 조회 */
-    {
-        int dev_num = 15;
-        esp_ble_bond_dev_t dev_list[15] = {};
-        esp_err_t err = esp_ble_get_bond_device_list(&dev_num, dev_list);
-        if (err == ESP_OK) {
-            for (int i = 0; i < dev_num && mac_count < 30; ++i) {
-                std::memcpy(macs[mac_count++], dev_list[i].bd_addr, 6);
-            }
-        }
-    }
-
-    /* Classic 본딩 목록 조회 */
-    {
-        int dev_num = 15;
-        esp_bd_addr_t dev_list[15] = {};
-        esp_err_t err = esp_bt_gap_get_bond_device_list(&dev_num, dev_list);
-        if (err == ESP_OK) {
-            for (int i = 0; i < dev_num && mac_count < 30; ++i) {
-                /* 중복 MAC 제거 */
-                bool dup = false;
-                for (int j = 0; j < mac_count; ++j) {
-                    if (std::memcmp(macs[j], dev_list[i], 6) == 0) {
-                        dup = true;
-                        break;
-                    }
-                }
-                if (!dup) {
-                    std::memcpy(macs[mac_count++], dev_list[i], 6);
-                }
-            }
-        }
-    }
+    int mac_count = bt_get_bonded_devices(macs, 30);
 
     /* 응답 생성: 줄바꿈 구분 MAC 목록 */
     httpd_resp_set_type(req, "text/plain");
