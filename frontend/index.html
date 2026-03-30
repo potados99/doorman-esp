@@ -332,6 +332,13 @@ document.addEventListener('keydown', function(e) {
 /* ── WebSocket Log Streaming with Tag Filter ── */
 var MAX_LOG_LINES = 500;
 var rawLogs = [];
+var autoFollow = true;
+
+/* 스크롤 위치로 자동 팔로 on/off. 맨 아래 근처면 팔로, 위로 올리면 정지. */
+document.getElementById('logArea').addEventListener('scroll', function() {
+    var el = this;
+    autoFollow = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+});
 var knownTags = {};
 var allChecked = true;
 var ws = null;
@@ -386,7 +393,10 @@ function renderFilteredLogs() {
         filtered.push(rawLogs[i]);
     }
     area.textContent = filtered.join('\n');
-    area.scrollTop = area.scrollHeight;
+    /* 맨 아래 근처(50px 이내)일 때만 자동 스크롤. 위로 올렸으면 안 건드림. */
+    if (autoFollow) {
+        area.scrollTop = area.scrollHeight;
+    }
 }
 
 function wsConnect() {
