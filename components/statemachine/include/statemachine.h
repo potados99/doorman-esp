@@ -93,4 +93,7 @@ private:
 
     /** 24시간 이상 미감지된 슬롯을 해제하여 재활용 가능하게 한다. */
     void cleanup_stale(uint32_t now_ms);
+
+    /** MAC을 "AA:BB:CC:DD:EE:FF" 형태로 변환. 로그용. */
+    static void mac_to_str(const uint8_t *mac, char *buf, size_t buf_size);
 };

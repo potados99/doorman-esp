@@ -1,8 +1,22 @@
 #include "statemachine.h"
 
+#ifdef ESP_PLATFORM
+#include <esp_log.h>
+static const char *TAG = "sm";
+#else
+#define ESP_LOGI(tag, fmt, ...)
+#endif
+
+#include <cstdio>
+
 static const uint32_t kStaleThresholdMs = 86400000;  // 24시간
 
 StateMachine::StateMachine(AppConfig cfg) : config_(cfg) {}
+
+void StateMachine::mac_to_str(const uint8_t *mac, char *buf, size_t buf_size) {
+    snprintf(buf, buf_size, "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
 
 StateMachine::DeviceState *StateMachine::find_device(const uint8_t (&mac)[6]) {
     for (auto &d : devices_) {
@@ -26,21 +40,35 @@ StateMachine::DeviceState *StateMachine::find_or_create(const uint8_t (&mac)[6])
             return &d;
         }
     }
-    return nullptr;  // 슬롯 풀
+    return nullptr;
 }
 
 void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms) {
     DeviceState *dev = find_or_create(mac);
     if (!dev) {
-        return;  // 슬롯 풀 (30개 초과)
+        return;
     }
+
+    bool was_detected = dev->detected;
 
     if (seen) {
         dev->last_seen_ms = now_ms;
         dev->detected = true;
+
+        if (!was_detected) {
+            char s[18];
+            mac_to_str(mac, s, sizeof(s));
+            ESP_LOGI(TAG, "%s 재실", s);
+        }
     } else {
         dev->detected = false;
         dev->went_undetected = true;
+
+        if (was_detected) {
+            char s[18];
+            mac_to_str(mac, s, sizeof(s));
+            ESP_LOGI(TAG, "%s 퇴실 (probe 실패)", s);
+        }
     }
 }
 
@@ -50,22 +78,27 @@ Action StateMachine::tick(uint32_t now_ms) {
             continue;
         }
 
-        // 1. 타임아웃 체크: 오래 안 보이면 미감지 전환
+        // 타임아웃 체크: 오래 안 보이면 미감지 전환
         if (dev.detected && dev.last_seen_ms > 0) {
             if (now_ms - dev.last_seen_ms >= config_.presence_timeout_ms) {
                 dev.detected = false;
                 dev.went_undetected = true;
+
+                char s[18];
+                mac_to_str(dev.mac, s, sizeof(s));
+                ESP_LOGI(TAG, "%s 퇴실 (타임아웃 %lums)", s, config_.presence_timeout_ms);
             }
         }
 
-        // 2. Unlock 판정: 감지 중이고 쿨다운 조건 충족 시
-        //    auto_unlock_enabled가 false이면 Unlock을 발행하지 않는다.
-        //    상태 추적(감지/미감지/타임아웃)은 계속 동작하여, 다시 켰을 때 즉시 정상 동작.
+        // Unlock 판정
         if (dev.detected && config_.auto_unlock_enabled) {
             if (dev.last_unlock_ms == 0) {
-                // 최초 감지 -> 무조건 Unlock
                 dev.last_unlock_ms = now_ms;
                 dev.went_undetected = false;
+
+                char s[18];
+                mac_to_str(dev.mac, s, sizeof(s));
+                ESP_LOGI(TAG, "%s → Unlock (최초 감지)", s);
                 return Action::Unlock;
             }
 
@@ -74,6 +107,10 @@ Action StateMachine::tick(uint32_t now_ms) {
                 (cooldown_ms == 0 || now_ms - dev.last_unlock_ms >= cooldown_ms)) {
                 dev.last_unlock_ms = now_ms;
                 dev.went_undetected = false;
+
+                char s[18];
+                mac_to_str(dev.mac, s, sizeof(s));
+                ESP_LOGI(TAG, "%s → Unlock (재감지, 쿨다운 경과)", s);
                 return Action::Unlock;
             }
         }
@@ -100,6 +137,9 @@ void StateMachine::update_config(AppConfig cfg) {
 void StateMachine::cleanup_stale(uint32_t now_ms) {
     for (auto &d : devices_) {
         if (d.valid && !d.detected && now_ms - d.last_seen_ms >= kStaleThresholdMs) {
+            char s[18];
+            mac_to_str(d.mac, s, sizeof(s));
+            ESP_LOGI(TAG, "%s 슬롯 정리 (24시간 미감지)", s);
             d = DeviceState{};
         }
     }

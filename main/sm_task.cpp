@@ -68,12 +68,6 @@ static void sm_task(void *arg) {
         sm.update_config(app_config_get());
 
         if (got == pdTRUE) {
-            if (msg.seen) {
-                char mac_str[18];
-                mac_to_str(msg.mac, mac_str, sizeof(mac_str));
-                ESP_LOGI(TAG, "Feed: %s seen", mac_str);
-            }
-
             sm.feed(msg.mac, msg.seen, msg.now_ms);
         }
 
@@ -81,7 +75,6 @@ static void sm_task(void *arg) {
         Action action = sm.tick(now_ms);
 
         if (action == Action::Unlock) {
-            ESP_LOGI(TAG, "Unlock! Sending command to control task");
             control_queue_send(ControlCommand::AutoUnlock);
         }
     }
