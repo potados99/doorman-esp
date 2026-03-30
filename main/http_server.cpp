@@ -463,7 +463,7 @@ static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
     app_config_set(cfg);
 
     const char *state = cfg.auto_unlock_enabled ? "enabled" : "disabled";
-    ESP_LOGI(TAG, "Auto-unlock %s", state);
+    /* config_service가 NVS 저장 시 로그를 찍으므로 여기서는 생략 */
     return send_text(req, "200 OK", state);
 }
 
@@ -526,11 +526,7 @@ static esp_err_t tuning_set_handler(httpd_req_t *req) {
              (unsigned long)cfg.presence_timeout_ms,
              (unsigned long)cfg.enter_window_ms,
              (unsigned long)cfg.enter_min_count);
-    ESP_LOGI(TAG, "Tuning updated: rssi=%d timeout=%lums enter_window=%lums enter_count=%lu",
-             cfg.rssi_threshold,
-             (unsigned long)cfg.presence_timeout_ms,
-             (unsigned long)cfg.enter_window_ms,
-             (unsigned long)cfg.enter_min_count);
+    /* config_service가 NVS 저장 시 로그를 찍으므로 여기서는 생략 */
     return send_text(req, "200 OK", buf);
 }
 

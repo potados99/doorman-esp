@@ -86,9 +86,12 @@ static void save_to_nvs() {
     nvs_commit(handle);
     nvs_close(handle);
 
-    ESP_LOGI(TAG, "Config saved to NVS: timeout=%lums, auto_unlock=%s",
+    ESP_LOGI(TAG, "Config saved: auto=%s rssi=%d timeout=%lums win=%lums cnt=%lu",
+             s_config.auto_unlock_enabled ? "on" : "off",
+             s_config.rssi_threshold,
              (unsigned long)s_config.presence_timeout_ms,
-             s_config.auto_unlock_enabled ? "on" : "off");
+             (unsigned long)s_config.enter_window_ms,
+             (unsigned long)s_config.enter_min_count);
 }
 
 void config_service_init() {
