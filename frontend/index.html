@@ -399,9 +399,28 @@ function renderFilteredLogs() {
     }
 }
 
+var wsToken = '';
+
 function wsConnect() {
+    if (!wsToken) {
+        /* 토큰 미획득 → Basic Auth 뒤의 API로 먼저 획득 */
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/ws-token');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                wsToken = xhr.responseText;
+                wsConnect();  /* 토큰 획득 후 재시도 */
+            } else {
+                setTimeout(wsConnect, 3000);
+            }
+        };
+        xhr.onerror = function() { setTimeout(wsConnect, 3000); };
+        xhr.send();
+        return;
+    }
+
     var host = location.host || 'doorman.local';
-    var url = 'ws://' + host + '/ws';
+    var url = 'ws://' + host + '/ws?token=' + wsToken;
     ws = new WebSocket(url);
 
     ws.onopen = function() {

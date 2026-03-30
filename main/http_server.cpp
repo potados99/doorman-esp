@@ -14,6 +14,7 @@
 #include <esp_gap_bt_api.h>
 #include <esp_log.h>
 #include <esp_ota_ops.h>
+#include <esp_random.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/ringbuf.h>
@@ -141,6 +142,9 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
 static RingbufHandle_t s_log_ringbuf = nullptr;
 static vprintf_like_t s_original_vprintf = nullptr;
 static httpd_handle_t s_server = nullptr;
+
+/** WS 인증 토큰. 부팅마다 esp_random()으로 생성. RAM만. */
+static char s_ws_token[17] = {};
 /** 동시 WS 클라이언트 최대 수. httpd 소켓 풀(기본 7)에서 API용을 빼면 4~5가 현실적. */
 static constexpr int kMaxWsClients = 5;
 static int s_ws_fds[kMaxWsClients] = {-1, -1, -1, -1, -1};
@@ -444,6 +448,12 @@ static esp_err_t build_info_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", buf);
 }
 
+/** WS 인증 토큰 발급. Basic Auth 뒤에 있으므로 인증된 사용자만 획득 가능. */
+static esp_err_t ws_token_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+    return send_text(req, "200 OK", s_ws_token);
+}
+
 /** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
 static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
@@ -583,6 +593,21 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
+        /**
+         * WS 핸드셰이크 시 query param으로 토큰 검증.
+         * 브라우저의 new WebSocket()은 커스텀 헤더를 못 보내므로
+         * Basic Auth 대신 토큰으로 인증.
+         */
+        char query[64] = {};
+        char token[24] = {};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+            httpd_query_key_value(query, "token", token, sizeof(token)) != ESP_OK ||
+            std::strcmp(token, s_ws_token) != 0) {
+            ESP_LOGW(TAG, "WS rejected — invalid token");
+            httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Invalid token");
+            return ESP_FAIL;
+        }
+
         int fd = httpd_req_to_sockfd(req);
         bool added = false;
 
@@ -655,6 +680,12 @@ static bool register_routes(httpd_handle_t server, const Route *routes, size_t c
  * STA 모드에서만 호출 — SoftAP에서는 로그 스트리밍 불필요.
  */
 static void init_log_streaming() {
+    /* WS 인증 토큰 생성. 부팅마다 랜덤. */
+    uint32_t r1 = esp_random();
+    uint32_t r2 = esp_random();
+    snprintf(s_ws_token, sizeof(s_ws_token), "%08lx%08lx", (unsigned long)r1, (unsigned long)r2);
+    ESP_LOGI(TAG, "WS token generated");
+
     s_log_ringbuf = xRingbufferCreate(8192, RINGBUF_TYPE_NOSPLIT);
     if (s_log_ringbuf == nullptr) {
         ESP_LOGE(TAG, "Failed to create log ring buffer");
@@ -708,6 +739,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/pairing/toggle",        HTTP_POST, pairing_toggle_handler,      false},
             {"/api/pairing/status",        HTTP_GET,  pairing_status_handler,      false},
             {"/api/build-info",            HTTP_GET,  build_info_handler,          false},
+            {"/api/ws-token",              HTTP_GET,  ws_token_handler,            false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
@@ -716,7 +748,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 15);
+        ok = register_routes(server, sta_routes, 16);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;
