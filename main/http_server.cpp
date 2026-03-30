@@ -444,7 +444,11 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
-        if (!check_auth(req)) return ESP_OK;
+        /**
+         * WS 핸드셰이크에서는 인증을 하지 않는다.
+         * 브라우저의 new WebSocket()은 커스텀 헤더(Authorization)를 보낼 수 없기 때문.
+         * 이미 index.html에 Basic Auth로 접속한 상태이고, WS는 로그 읽기 전용이므로 허용.
+         */
         /* WebSocket 핸드셰이크 완료 시점 */
         s_ws_fd.store(httpd_req_to_sockfd(req));
         ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", s_ws_fd.load());
