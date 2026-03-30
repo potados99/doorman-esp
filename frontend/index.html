@@ -535,7 +535,7 @@ function deleteDevice(mac) {
     xhr.onerror = function() {
         show('deviceStatus', 'Connection lost.', 'err');
     };
-    xhr.send('mac=' + encodeURIComponent(mac));
+    xhr.send('mac=' + mac);
 }
 
 loadTuning();
