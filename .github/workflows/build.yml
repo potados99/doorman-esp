@@ -16,15 +16,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # git rev-list --count에 전체 히스토리 필요
+          fetch-depth: 0
 
       - name: Host tests
+        shell: bash
         run: |
+          . /opt/esp/idf/export.sh
           cmake -S . -B build-host -DHOST_TEST=ON
           cmake --build build-host
           ctest --test-dir build-host --output-on-failure
-        shell: bash
 
       - name: Build firmware
-        run: idf.py build
         shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          idf.py build
