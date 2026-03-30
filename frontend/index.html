@@ -108,14 +108,16 @@
 
         <!-- Tuning -->
         <h2>Presence Tuning</h2>
-        <label for="rssiThresh">RSSI Threshold (dBm)</label>
-        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
-        <label for="presTimeout">Presence Timeout (ms)</label>
-        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
+        <p style="font-size:0.85rem;color:#656d76;margin:0 0 8px;">Enter: 윈도우 내 RSSI 조건 충족 관측 N회 이상이면 재실</p>
         <label for="enterWindow">Enter Window (ms)</label>
         <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
         <label for="enterCount">Enter Min Count</label>
         <input id="enterCount" type="number" min="1" max="10" value="3">
+        <label for="rssiThresh">Enter RSSI Threshold (dBm)</label>
+        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
+        <p style="font-size:0.85rem;color:#656d76;margin:12px 0 8px;">Exit: feed 없이 이 시간 지속되면 퇴실</p>
+        <label for="presTimeout">Exit Timeout (ms)</label>
+        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
         <button onclick="saveTuning()">Save</button>
         <div id="tuningStatus" class="status"></div>
 
