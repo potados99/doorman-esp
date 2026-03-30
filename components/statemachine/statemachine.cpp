@@ -48,8 +48,23 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
         return;  // 현재 seen=false는 사용하지 않음 (타임아웃으로 처리)
     }
 
+    DeviceState *dev = find_or_create(mac);
+    if (!dev) {
+        return;
+    }
+
     /**
-     * RSSI 필터링: rssi != 0이면 BLE 신호이므로 임계값 체크.
+     * 이미 재실 → RSSI 상관없이 last_seen만 갱신 (재실 유지).
+     * 약한 신호라도 살아있으면 타임아웃을 리셋한다.
+     */
+    if (dev->detected) {
+        dev->last_seen_ms = now_ms;
+        return;
+    }
+
+    /**
+     * 미감지 상태 → RSSI 필터링 적용 (진입 판단).
+     * rssi != 0이면 BLE 신호이므로 임계값 체크.
      * rssi == 0이면 Classic (RSSI 없음) → 필터링 건너뜀.
      * 예: rssi=-75, threshold=-70 → -75 < -70 → 신호 약함 → 무시.
      */
@@ -57,23 +72,13 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
         return;
     }
 
-    DeviceState *dev = find_or_create(mac);
-    if (!dev) {
-        return;
-    }
-
-    bool was_detected = dev->detected;
+    /** RSSI OK → 관측 기록 (원형 버퍼에 타임스탬프 저장) */
     dev->last_seen_ms = now_ms;
-    dev->detected = true;
-
-    if (!was_detected) {
-        char s[18];
-        mac_to_str(mac, s, sizeof(s));
-        if (rssi != 0) {
-            ESP_LOGI(TAG, "%s 재실 (RSSI %d)", s, rssi);
-        } else {
-            ESP_LOGI(TAG, "%s 재실 (Classic)", s);
-        }
+    dev->last_rssi = rssi;
+    dev->recent_obs[dev->obs_idx] = now_ms;
+    dev->obs_idx = (dev->obs_idx + 1) % DeviceState::kMaxRecentObs;
+    if (dev->obs_count < DeviceState::kMaxRecentObs) {
+        dev->obs_count++;
     }
 }
 
@@ -83,7 +88,7 @@ Action StateMachine::tick(uint32_t now_ms) {
             continue;
         }
 
-        // 타임아웃 체크: 오래 안 보이면 미감지 전환
+        // 1. 퇴실 판단: 오래 안 보이면 미감지 전환
         if (dev.detected && dev.last_seen_ms > 0) {
             if (now_ms - dev.last_seen_ms >= config_.presence_timeout_ms) {
                 dev.detected = false;
@@ -91,11 +96,35 @@ Action StateMachine::tick(uint32_t now_ms) {
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                ESP_LOGI(TAG, "%s 퇴실 (타임아웃 %lums)", s, config_.presence_timeout_ms);
+                ESP_LOGI(TAG, "%s 퇴실 (타임아웃 %lums)", s,
+                         (unsigned long)config_.presence_timeout_ms);
             }
         }
 
-        // Unlock 판정
+        // 2. 진입 판단: 윈도우 내 관측 수 카운트
+        if (!dev.detected) {
+            int count = 0;
+            for (int i = 0; i < dev.obs_count && i < DeviceState::kMaxRecentObs; ++i) {
+                if (now_ms - dev.recent_obs[i] <= config_.enter_window_ms) {
+                    ++count;
+                }
+            }
+            if (count >= static_cast<int>(config_.enter_min_count)) {
+                dev.detected = true;
+
+                char s[18];
+                mac_to_str(dev.mac, s, sizeof(s));
+                if (dev.last_rssi != 0) {
+                    ESP_LOGI(TAG, "%s 재실 (관측 %d회/%lums, RSSI %d)", s,
+                             count, (unsigned long)config_.enter_window_ms, dev.last_rssi);
+                } else {
+                    ESP_LOGI(TAG, "%s 재실 (관측 %d회/%lums, Classic)", s,
+                             count, (unsigned long)config_.enter_window_ms);
+                }
+            }
+        }
+
+        // 3. Unlock 판정
         if (dev.detected && config_.auto_unlock_enabled) {
             if (dev.last_unlock_ms == 0) {
                 // 최초 감지 → Unlock

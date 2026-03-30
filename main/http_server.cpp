@@ -437,21 +437,25 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
 }
 
-/** 튜닝 파라미터 조회: rssi_threshold, presence_timeout_ms */
+/** 튜닝 파라미터 조회: rssi_threshold, presence_timeout_ms, enter_window_ms, enter_min_count */
 static esp_err_t tuning_get_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
     AppConfig cfg = app_config_get();
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%d,%lu", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%d,%lu,%lu,%lu",
+             cfg.rssi_threshold,
+             (unsigned long)cfg.presence_timeout_ms,
+             (unsigned long)cfg.enter_window_ms,
+             (unsigned long)cfg.enter_min_count);
     return send_text(req, "200 OK", buf);
 }
 
-/** 튜닝 파라미터 변경: rssi=N&timeout=N (form-urlencoded) */
+/** 튜닝 파라미터 변경: rssi=N&timeout=N&enter_window=N&enter_count=N (form-urlencoded) */
 static esp_err_t tuning_set_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    char body[128];
+    char body[256];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
@@ -465,6 +469,12 @@ static esp_err_t tuning_set_handler(httpd_req_t *req) {
     if (httpd_query_key_value(body, "timeout", val, sizeof(val)) == ESP_OK) {
         cfg.presence_timeout_ms = (uint32_t)atoi(val);
     }
+    if (httpd_query_key_value(body, "enter_window", val, sizeof(val)) == ESP_OK) {
+        cfg.enter_window_ms = (uint32_t)atoi(val);
+    }
+    if (httpd_query_key_value(body, "enter_count", val, sizeof(val)) == ESP_OK) {
+        cfg.enter_min_count = (uint32_t)atoi(val);
+    }
 
     if (!validate(cfg)) {
         return send_text(req, "400 Bad Request", "Invalid values");
@@ -472,9 +482,17 @@ static esp_err_t tuning_set_handler(httpd_req_t *req) {
 
     app_config_set(cfg);
 
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%d,%lu", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
-    ESP_LOGI(TAG, "Tuning updated: rssi=%d timeout=%lums", cfg.rssi_threshold, (unsigned long)cfg.presence_timeout_ms);
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%d,%lu,%lu,%lu",
+             cfg.rssi_threshold,
+             (unsigned long)cfg.presence_timeout_ms,
+             (unsigned long)cfg.enter_window_ms,
+             (unsigned long)cfg.enter_min_count);
+    ESP_LOGI(TAG, "Tuning updated: rssi=%d timeout=%lums enter_window=%lums enter_count=%lu",
+             cfg.rssi_threshold,
+             (unsigned long)cfg.presence_timeout_ms,
+             (unsigned long)cfg.enter_window_ms,
+             (unsigned long)cfg.enter_min_count);
     return send_text(req, "200 OK", buf);
 }
 

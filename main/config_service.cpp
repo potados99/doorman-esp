@@ -14,6 +14,8 @@ static constexpr const char *kNvsNamespace = "door";
 static constexpr const char *kKeyTimeout = "timeout";
 static constexpr const char *kKeyAutoUnlock = "auto";
 static constexpr const char *kKeyRssiThresh = "rssi";
+static constexpr const char *kKeyEnterWindow = "ent_win";
+static constexpr const char *kKeyEnterCount = "ent_cnt";
 
 static AppConfig s_config = {};
 static SemaphoreHandle_t s_mutex = nullptr;
@@ -43,6 +45,14 @@ static void load_from_nvs() {
     if (nvs_get_i8(handle, kKeyRssiThresh, &rssi_val) == ESP_OK) {
         loaded.rssi_threshold = rssi_val;
     }
+    uint32_t ent_win;
+    if (nvs_get_u32(handle, kKeyEnterWindow, &ent_win) == ESP_OK) {
+        loaded.enter_window_ms = ent_win;
+    }
+    uint32_t ent_cnt;
+    if (nvs_get_u32(handle, kKeyEnterCount, &ent_cnt) == ESP_OK) {
+        loaded.enter_min_count = ent_cnt;
+    }
 
     nvs_close(handle);
 
@@ -71,6 +81,8 @@ static void save_to_nvs() {
     nvs_set_u32(handle, kKeyTimeout, s_config.presence_timeout_ms);
     nvs_set_u8(handle, kKeyAutoUnlock, s_config.auto_unlock_enabled ? 1 : 0);
     nvs_set_i8(handle, kKeyRssiThresh, s_config.rssi_threshold);
+    nvs_set_u32(handle, kKeyEnterWindow, s_config.enter_window_ms);
+    nvs_set_u32(handle, kKeyEnterCount, s_config.enter_min_count);
     nvs_commit(handle);
     nvs_close(handle);
 

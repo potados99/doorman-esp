@@ -112,6 +112,10 @@
         <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
         <label for="presTimeout">Presence Timeout (ms)</label>
         <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
+        <label for="enterWindow">Enter Window (ms)</label>
+        <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
+        <label for="enterCount">Enter Min Count</label>
+        <input id="enterCount" type="number" min="1" max="10" value="3">
         <button onclick="saveTuning()">Save</button>
         <div id="tuningStatus" class="status"></div>
 
@@ -422,6 +426,8 @@ function loadTuning() {
             var parts = xhr.responseText.split(',');
             document.getElementById('rssiThresh').value = parts[0];
             document.getElementById('presTimeout').value = parts[1];
+            if (parts.length > 2) document.getElementById('enterWindow').value = parts[2];
+            if (parts.length > 3) document.getElementById('enterCount').value = parts[3];
         }
     };
     xhr.send();
@@ -430,10 +436,12 @@ function loadTuning() {
 function saveTuning() {
     var rssi = document.getElementById('rssiThresh').value;
     var timeout = document.getElementById('presTimeout').value;
+    var enterWindow = document.getElementById('enterWindow').value;
+    var enterCount = document.getElementById('enterCount').value;
     show('tuningStatus', 'Saving...', 'run');
     post('/api/tuning',
-         'rssi=' + rssi + '&timeout=' + timeout,
-         'tuningStatus', 'Saved! (RSSI=' + rssi + ', Timeout=' + timeout + 'ms)', false);
+         'rssi=' + rssi + '&timeout=' + timeout + '&enter_window=' + enterWindow + '&enter_count=' + enterCount,
+         'tuningStatus', 'Saved! (RSSI=' + rssi + ', Timeout=' + timeout + 'ms, Window=' + enterWindow + 'ms, Count=' + enterCount + ')', false);
 }
 
 /* ── Bonded Devices ── */

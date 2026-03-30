@@ -80,8 +80,15 @@ private:
         bool valid = false;
         bool detected = false;
         bool went_undetected = false;
-        uint32_t last_seen_ms = 0;
+        uint32_t last_seen_ms = 0;        /**< 아무 feed(true) 시각 (RSSI 무관, 재실 유지용) */
         uint32_t last_unlock_ms = 0;
+        int8_t last_rssi = 0;             /**< 마지막 관측의 RSSI (로그용) */
+
+        /** 진입 판단용: RSSI >= threshold인 관측 타임스탬프 원형 버퍼 */
+        static constexpr int kMaxRecentObs = 10;
+        uint32_t recent_obs[kMaxRecentObs] = {};
+        int obs_idx = 0;
+        int obs_count = 0;  /**< 전체 기록된 관측 수 (kMaxRecentObs까지만) */
     };
 
     AppConfig config_;
