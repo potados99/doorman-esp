@@ -1,4 +1,5 @@
 #include "sm_task.h"
+#include "bt_manager.h"
 #include "config_service.h"
 #include "control_task.h"
 #include "statemachine.h"
@@ -85,6 +86,12 @@ static void sm_task(void *arg) {
          * - 유예기간: 재부팅 직후 기존 기기 flood 방지
          * - auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
          */
+        /**
+         * Unlock 억제 — SM은 항상 드라이런 판정. 여기서만 실제 전달 결정.
+         * 1. 유예기간: 재부팅 직후 기존 기기 flood 방지
+         * 2. auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
+         * 3. 페어링 중: 새 기기 bond 중에 문 열리면 안 됨
+         */
         if (action == Action::Unlock) {
             AppConfig current_cfg = app_config_get();
             bool in_grace = (now_ms - start_ms) < kStartupGraceMs;
@@ -94,6 +101,8 @@ static void sm_task(void *arg) {
                          (unsigned long)(kStartupGraceMs - (now_ms - start_ms)));
             } else if (!current_cfg.auto_unlock_enabled) {
                 ESP_LOGI(TAG, "Unlock suppressed (auto_unlock OFF)");
+            } else if (bt_is_pairing()) {
+                ESP_LOGI(TAG, "Unlock suppressed (pairing mode)");
             } else {
                 control_queue_send(ControlCommand::AutoUnlock);
             }

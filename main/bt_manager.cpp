@@ -602,10 +602,8 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         }
         taskEXIT_CRITICAL(&s_state_lock);
 
-        /* 페어링 중에는 SM feed를 억제. bond 목록이 변동 중이므로 노이즈가 됨. */
-        if (s_pairing_mode.load()) return;
-
-        /* SM Task에 감지 이벤트 전달 (RSSI 포함) */
+        /* SM Task에 감지 이벤트 전달 (RSSI 포함). 페어링 중에도 feed는 보낸다.
+         * Unlock 억제는 SM Task에서 일괄 처리 (유예기간/auto_unlock/페어링 상태). */
         char identity_str[18] = {};
         bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
         ESP_LOGI(kTag, "BLE %s RSSI=%d", identity_str, scan_rst.rssi);
