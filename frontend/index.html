@@ -543,6 +543,7 @@ function loadDevices() {
 }
 
 function deleteDevice(mac) {
+    if (!confirm('Delete bond for ' + mac + '?\nThis cannot be undone. The device must re-pair.')) return;
     show('deviceStatus', 'Deleting ' + mac + '...', 'run');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/devices/delete');
