@@ -248,7 +248,7 @@ var logLines = 0;
 var ws = null;
 
 function wsConnect() {
-    var host = location.hostname || 'doorman.local';
+    var host = location.host || 'doorman.local';
     var url = 'ws://' + host + '/ws';
     ws = new WebSocket(url);
 
