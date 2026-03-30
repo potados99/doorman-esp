@@ -53,7 +53,7 @@ constexpr uint8_t kBleAdvFlags = ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_DM
 
 // ── BT 태스크 큐 메시지 ──
 
-enum class BtCmdType { StartPairing, RemoveBond };
+enum class BtCmdType { StartPairing, StopPairing, RemoveBond };
 
 struct BtCmd {
     BtCmdType type;
@@ -706,6 +706,11 @@ void presence_task(void *) {
             case BtCmdType::StartPairing:
                 open_pairing_window();
                 break;
+            case BtCmdType::StopPairing:
+                close_pairing_window();
+                refresh_ble_bond_cache();
+                refresh_classic_bond_cache();
+                break;
             case BtCmdType::RemoveBond: {
                 char addr_str[18] = {};
                 bda_to_str(cmd.mac, addr_str, sizeof(addr_str));
@@ -733,17 +738,11 @@ void presence_task(void *) {
         }
 
         if (s_pairing_mode.load()) {
-            if ((now - s_pairing_start_tick) >= kPairingWindow) {
-                close_pairing_window();
-
-                /* 페어링 종료 직후 bond 캐시 갱신 */
-                refresh_ble_bond_cache();
-                refresh_classic_bond_cache();
-            } else if (now - last_pairing_log >= kPairingLogInterval) {
+            /* 수동 종료 대기. 자동 타이머 없음. */
+            if (now - last_pairing_log >= kPairingLogInterval) {
                 last_pairing_log = now;
-                uint32_t remaining_ms = (kPairingWindow - (now - s_pairing_start_tick)) * portTICK_PERIOD_MS;
-                ESP_LOGI(kTag, "Pairing mode active for %lu ms more. BLE='%s', Classic='%s'",
-                         (unsigned long)remaining_ms, kBleDeviceName, kClassicDeviceName);
+                ESP_LOGI(kTag, "Pairing mode active. BLE='%s', Classic='%s'",
+                         kBleDeviceName, kClassicDeviceName);
             }
         } else {
             if (now - last_classic_probe >= kClassicProbeRetryDelay) {
@@ -1050,9 +1049,7 @@ esp_err_t bt_manager_start() {
     s_bt_cmd_queue = xQueueCreate(4, sizeof(BtCmd));
     configASSERT(s_bt_cmd_queue);
 
-    /* 부팅 시 30초 페어링 윈도우 자동 시작 */
-    s_pairing_mode.store(true);
-    s_pairing_start_tick = xTaskGetTickCount();
+    /* 부팅 시 페어링 자동 시작 안 함. 웹에서 수동으로 시작/종료. */
 
     /**
      * BT 스택 초기화 순서는 PoC에서 검증된 것과 동일.
@@ -1149,6 +1146,19 @@ void bt_request_pairing() {
     } else {
         ESP_LOGI(kTag, "Pairing requested via HTTP");
     }
+}
+
+void bt_stop_pairing() {
+    if (s_bt_cmd_queue == nullptr) return;
+
+    BtCmd cmd = {};
+    cmd.type = BtCmdType::StopPairing;
+    xQueueSend(s_bt_cmd_queue, &cmd, 0);
+    ESP_LOGI(kTag, "Pairing stop requested via HTTP");
+}
+
+bool bt_is_pairing() {
+    return s_pairing_mode.load();
 }
 
 void bt_remove_bond(const uint8_t (&mac)[6]) {

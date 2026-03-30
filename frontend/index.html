@@ -121,7 +121,7 @@
 
         <!-- Pairing -->
         <h2>Bluetooth Pairing</h2>
-        <button class="btn-orange" onclick="startPairing()">Start Pairing (30s)</button>
+        <button id="pairBtn" class="btn-orange" onclick="togglePairing()">Pairing: Loading...</button>
         <div id="pairStatus" class="status"></div>
 
         <!-- Firmware Update -->
@@ -231,9 +231,28 @@ function loadAutoUnlockStatus() {
     xhr.send();
 }
 
-function startPairing() {
-    show('pairStatus', 'Starting...', 'run');
-    post('/api/pairing/start', null, 'pairStatus', 'Pairing window open (30s). Pair your device now!', false);
+function togglePairing() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/pairing/toggle');
+    xhr.onload = function() {
+        if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on');
+    };
+    xhr.send();
+}
+
+function updatePairingBtn(on) {
+    var btn = document.getElementById('pairBtn');
+    btn.textContent = on ? 'Pairing: ON (tap to stop)' : 'Pairing: OFF (tap to start)';
+    btn.className = on ? 'btn-green' : 'btn-orange';
+}
+
+function loadPairingStatus() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/pairing/status');
+    xhr.onload = function() {
+        if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on');
+    };
+    xhr.send();
 }
 
 function uploadFirmware() {
@@ -509,6 +528,7 @@ function deleteDevice(mac) {
 loadTuning();
 loadAutoUnlockStatus();
 loadDevices();
+loadPairingStatus();
 </script>
 </body>
 </html>

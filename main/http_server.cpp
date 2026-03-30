@@ -408,12 +408,21 @@ cleanup:
     return result == ESP_OK ? ESP_FAIL : result;
 }
 
-/** 페어링 시작 핸들러. 웹 UI에서 호출하여 30초 페어링 윈도우를 연다. */
-static esp_err_t pairing_start_handler(httpd_req_t *req) {
+/** 페어링 토글. 꺼져있으면 켜고, 켜져있으면 끈다. */
+static esp_err_t pairing_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
-
+    if (bt_is_pairing()) {
+        bt_stop_pairing();
+        return send_text(req, "200 OK", "off");
+    }
     bt_request_pairing();
-    return send_text(req, "200 OK", "Pairing started (30s window)");
+    return send_text(req, "200 OK", "on");
+}
+
+/** 페어링 현재 상태 조회. */
+static esp_err_t pairing_status_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+    return send_text(req, "200 OK", bt_is_pairing() ? "on" : "off");
 }
 
 /** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
@@ -699,7 +708,8 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/firmware/upload",       HTTP_POST, ota_upload_handler,          false},
             {"/api/auth/update",           HTTP_POST, auth_update_handler,         false},
             {"/api/wifi/update",           HTTP_POST, wifi_update_handler,         false},
-            {"/api/pairing/start",         HTTP_POST, pairing_start_handler,       false},
+            {"/api/pairing/toggle",        HTTP_POST, pairing_toggle_handler,      false},
+            {"/api/pairing/status",        HTTP_GET,  pairing_status_handler,      false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
@@ -708,7 +718,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 13);
+        ok = register_routes(server, sta_routes, 14);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;
