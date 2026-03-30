@@ -6,18 +6,6 @@ TEST(ConfigTest, DefaultValuesAreValid) {
     EXPECT_TRUE(validate(cfg));
 }
 
-TEST(ConfigTest, CooldownSecExceedingMaxIsRejected) {
-    AppConfig cfg;
-    cfg.cooldown_sec = 3601;
-    EXPECT_FALSE(validate(cfg));
-}
-
-TEST(ConfigTest, CooldownSecZeroIsAllowed) {
-    AppConfig cfg;
-    cfg.cooldown_sec = 0;
-    EXPECT_TRUE(validate(cfg));
-}
-
 TEST(ConfigTest, PresenceTimeoutZeroIsRejected) {
     AppConfig cfg;
     cfg.presence_timeout_ms = 0;
@@ -28,13 +16,6 @@ TEST(ConfigTest, PresenceTimeoutExceedingMaxIsRejected) {
     AppConfig cfg;
     cfg.presence_timeout_ms = 60001;
     EXPECT_FALSE(validate(cfg));
-}
-
-// 경계값 테스트: cooldown_sec=3600 (최대 허용)
-TEST(ConfigTest, CooldownSecMaxBoundaryIsValid) {
-    AppConfig cfg;
-    cfg.cooldown_sec = 3600;
-    EXPECT_TRUE(validate(cfg));
 }
 
 // 경계값 테스트: presence_timeout_ms=1 (최소 허용)

@@ -11,7 +11,6 @@ static const char *TAG = "cfg_svc";
 
 /** NVS namespace. door_control과 구분되는 앱 설정 전용 네임스페이스. */
 static constexpr const char *kNvsNamespace = "door";
-static constexpr const char *kKeyCooldown = "cooldown";
 static constexpr const char *kKeyTimeout = "timeout";
 static constexpr const char *kKeyAutoUnlock = "auto";
 static constexpr const char *kKeyRssiThresh = "rssi";
@@ -27,16 +26,12 @@ static void load_from_nvs() {
     AppConfig loaded = s_config;
     nvs_handle_t handle;
     if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
-        ESP_LOGI(TAG, "No stored config — using defaults (cooldown=%lus, timeout=%lums)",
-                 (unsigned long)s_config.cooldown_sec,
+        ESP_LOGI(TAG, "No stored config — using defaults (timeout=%lums)",
                  (unsigned long)s_config.presence_timeout_ms);
         return;
     }
 
     uint32_t val;
-    if (nvs_get_u32(handle, kKeyCooldown, &val) == ESP_OK) {
-        loaded.cooldown_sec = val;
-    }
     if (nvs_get_u32(handle, kKeyTimeout, &val) == ESP_OK) {
         loaded.presence_timeout_ms = val;
     }
@@ -52,16 +47,14 @@ static void load_from_nvs() {
     nvs_close(handle);
 
     if (!validate(loaded)) {
-        ESP_LOGW(TAG, "Stored config is invalid — using defaults (cooldown=%lus, timeout=%lums)",
-                 (unsigned long)s_config.cooldown_sec,
+        ESP_LOGW(TAG, "Stored config is invalid — using defaults (timeout=%lums)",
                  (unsigned long)s_config.presence_timeout_ms);
         return;
     }
 
     s_config = loaded;
 
-    ESP_LOGI(TAG, "Config loaded from NVS: cooldown=%lus, timeout=%lums, auto_unlock=%s",
-             (unsigned long)s_config.cooldown_sec,
+    ESP_LOGI(TAG, "Config loaded from NVS: timeout=%lums, auto_unlock=%s",
              (unsigned long)s_config.presence_timeout_ms,
              s_config.auto_unlock_enabled ? "on" : "off");
 }
@@ -75,15 +68,13 @@ static void save_to_nvs() {
         return;
     }
 
-    nvs_set_u32(handle, kKeyCooldown, s_config.cooldown_sec);
     nvs_set_u32(handle, kKeyTimeout, s_config.presence_timeout_ms);
     nvs_set_u8(handle, kKeyAutoUnlock, s_config.auto_unlock_enabled ? 1 : 0);
     nvs_set_i8(handle, kKeyRssiThresh, s_config.rssi_threshold);
     nvs_commit(handle);
     nvs_close(handle);
 
-    ESP_LOGI(TAG, "Config saved to NVS: cooldown=%lus, timeout=%lums, auto_unlock=%s",
-             (unsigned long)s_config.cooldown_sec,
+    ESP_LOGI(TAG, "Config saved to NVS: timeout=%lums, auto_unlock=%s",
              (unsigned long)s_config.presence_timeout_ms,
              s_config.auto_unlock_enabled ? "on" : "off");
 }
@@ -105,8 +96,7 @@ AppConfig app_config_get() {
 
 void app_config_set(const AppConfig &cfg) {
     if (!validate(cfg)) {
-        ESP_LOGW(TAG, "Rejected invalid config update: cooldown=%lu timeout=%lu",
-                 (unsigned long)cfg.cooldown_sec,
+        ESP_LOGW(TAG, "Rejected invalid config update: timeout=%lu",
                  (unsigned long)cfg.presence_timeout_ms);
         return;
     }

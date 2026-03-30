@@ -9,13 +9,6 @@
  */
 struct AppConfig {
     /**
-     * 쿨다운 시간 (초).
-     * 한번 Unlock 후, 같은 기기가 미감지→재감지되더라도 이 시간이 지나야 다시 Unlock.
-     * 0이면 시간 조건 무시 — went_undetected만으로 재트리거.
-     */
-    uint32_t cooldown_sec = 120;
-
-    /**
      * Presence 타임아웃 (밀리초).
      * feed() 이후 이 시간 안에 다음 feed()가 안 오면 미감지로 전환.
      * BLE advertising 간격 + probe 실패율을 고려해서 넉넉하게.

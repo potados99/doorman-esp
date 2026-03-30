@@ -52,8 +52,7 @@ static void sm_task(void *arg) {
     StateMachine sm(*cfg);
     delete cfg;
 
-    ESP_LOGI(TAG, "StateMachine initialized (cooldown=%lus, timeout=%lums)",
-             (unsigned long)sm.config().cooldown_sec,
+    ESP_LOGI(TAG, "StateMachine initialized (timeout=%lums)",
              (unsigned long)sm.config().presence_timeout_ms);
 
     FeedMsg msg;

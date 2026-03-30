@@ -8,7 +8,7 @@
  * 여러 태스크에서 설정을 읽을 수 있고(SM Task 시작 시, HTTP 핸들러 등),
  * 웹 UI에서 설정을 변경할 수도 있으므로 FreeRTOS mutex로 보호한다.
  *
- * NVS namespace "door"에 cooldown(초), timeout(밀리초)을 저장.
+ * NVS namespace "door"에 timeout(밀리초) 등을 저장.
  * 초기 값이 NVS에 없으면 AppConfig의 컴파일 타임 기본값을 사용.
  */
 

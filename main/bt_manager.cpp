@@ -597,6 +597,9 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         }
         taskEXIT_CRITICAL(&s_state_lock);
 
+        /* 페어링 중에는 SM feed를 억제. bond 목록이 변동 중이므로 노이즈가 됨. */
+        if (s_pairing_mode.load()) return;
+
         /* SM Task에 감지 이벤트 전달 (RSSI 포함) */
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
@@ -760,11 +763,14 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
             update_classic_presence(param->read_rmt_name.bda, param->read_rmt_name.rmt_name);
 
-            /* SM Task에 감지 이벤트 전달 */
-            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-            sm_feed_queue_send(
-                reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
-                true, now_ms);
+            /* 페어링 중에는 SM feed를 억제 */
+            if (!s_pairing_mode.load()) {
+                /* SM Task에 감지 이벤트 전달 */
+                uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+                sm_feed_queue_send(
+                    reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
+                    true, now_ms);
+            }
         }
         /* probe 실패는 무시. 타임아웃으로 미감지 전환 (BLE와 동일 정책). */
         break;

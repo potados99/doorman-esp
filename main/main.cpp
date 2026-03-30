@@ -31,7 +31,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "Starting Doorman...");
 
-    // AppConfig 서비스 초기화 (NVS에서 cooldown/timeout 로드)
+    // AppConfig 서비스 초기화 (NVS에서 설정 로드)
     config_service_init();
 
     // GPIO 설정

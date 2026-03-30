@@ -16,7 +16,7 @@ enum class Action { Unlock, NoOp };
  * BT presence 기반 문열림 판단 상태머신.
  *
  * 외부에서 feed()로 BT 감지 이벤트를 넣고, tick()을 주기적으로 호출하면
- * 내부적으로 per-device 상태(감지 여부, 쿨다운, 타임아웃)를 관리하고
+ * 내부적으로 per-device 상태(감지 여부, 타임아웃)를 관리하고
  * 문을 열어야 하는 시점에 Unlock을 반환한다.
  *
  * 기기 등록/삭제 API는 없다. BT 스택이 bond를 관리하고,
@@ -49,7 +49,7 @@ public:
      * 주기적으로 호출하여 시간 기반 상태 전이를 평가한다.
      *
      * 1. 타임아웃 체크: feed(true) 이후 presence_timeout_ms 경과 → 미감지 전환
-     * 2. Unlock 판정: 감지 중이고 쿨다운 조건 충족 시 Unlock 반환
+     * 2. Unlock 판정: 최초 감지 또는 퇴실 후 재감지 시 Unlock 반환
      *
      * 한 번에 최대 하나의 Unlock만 반환한다.
      * 복수 기기가 동시에 조건을 만족해도 다음 tick에서 순차 처리.

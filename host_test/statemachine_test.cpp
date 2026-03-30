@@ -18,13 +18,13 @@ TEST_F(StateMachineTest, FirstFeedSeenThenTickReturnsUnlock) {
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
 }
 
-// 감지 유지(쿨다운 내) -> tick()에서 NoOp
-TEST_F(StateMachineTest, ContinuousPresenceWithinCooldownReturnsNoOp) {
+// 감지 유지 -> tick()에서 NoOp
+TEST_F(StateMachineTest, ContinuousPresenceReturnsNoOp) {
     StateMachine sm(cfg);
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
 
-    // 쿨다운(120초=120000ms) 내에 계속 감지
+    // 계속 감지 중이면 NoOp
     sm.feed(mac_a, true, 2000);
     EXPECT_EQ(sm.tick(2000), Action::NoOp);
 
@@ -38,60 +38,26 @@ TEST_F(StateMachineTest, TimeoutCausesUndetected) {
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
 
-    // presence_timeout_ms(5000) 경과 후 tick -> 미감지 전환, 하지만 쿨다운 미충족이므로 NoOp
+    // presence_timeout_ms(5000) 경과 후 tick -> 미감지 전환
+    EXPECT_EQ(sm.tick(6001), Action::NoOp);
+}
+
+// 미감지 후 재감지 -> tick()에서 즉시 Unlock (cooldown 없음)
+TEST_F(StateMachineTest, RedetectionAfterDepartureReturnsUnlock) {
+    StateMachine sm(cfg);
+    sm.feed(mac_a, true, 1000);
+    EXPECT_EQ(sm.tick(1000), Action::Unlock);
+
+    // 타임아웃으로 미감지 전환
     EXPECT_EQ(sm.tick(6001), Action::NoOp);
 
-    // 재감지 but 쿨다운 미경과 -> NoOp
+    // 재감지 → 즉시 Unlock (cooldown 없이)
     sm.feed(mac_a, true, 7000);
-    EXPECT_EQ(sm.tick(7000), Action::NoOp);
-}
-
-// 미감지 후 재감지 + 쿨다운 경과 -> tick()에서 Unlock
-TEST_F(StateMachineTest, RedetectionAfterCooldownReturnsUnlock) {
-    StateMachine sm(cfg);
-    sm.feed(mac_a, true, 1000);
-    EXPECT_EQ(sm.tick(1000), Action::Unlock);
-
-    // 타임아웃으로 미감지 전환
-    EXPECT_EQ(sm.tick(6001), Action::NoOp);
-
-    // 쿨다운(120초=120000ms) 경과 후 재감지
-    sm.feed(mac_a, true, 121001);
-    EXPECT_EQ(sm.tick(121001), Action::Unlock);
-}
-
-// 미감지 후 재감지 + 쿨다운 미경과 -> tick()에서 NoOp
-TEST_F(StateMachineTest, RedetectionBeforeCooldownReturnsNoOp) {
-    StateMachine sm(cfg);
-    sm.feed(mac_a, true, 1000);
-    EXPECT_EQ(sm.tick(1000), Action::Unlock);
-
-    // 타임아웃으로 미감지 전환
-    EXPECT_EQ(sm.tick(6001), Action::NoOp);
-
-    // 쿨다운 미경과 상태에서 재감지
-    sm.feed(mac_a, true, 10000);
-    EXPECT_EQ(sm.tick(10000), Action::NoOp);
-}
-
-// cooldown_sec=0 -> went_undetected만으로 즉시 재트리거
-TEST_F(StateMachineTest, ZeroCooldownRetriggersImmediately) {
-    cfg.cooldown_sec = 0;
-    StateMachine sm(cfg);
-
-    sm.feed(mac_a, true, 1000);
-    EXPECT_EQ(sm.tick(1000), Action::Unlock);
-
-    // 타임아웃으로 미감지 전환
-    EXPECT_EQ(sm.tick(6001), Action::NoOp);
-
-    // 즉시 재감지 -> cooldown=0이므로 바로 Unlock
-    sm.feed(mac_a, true, 6002);
-    EXPECT_EQ(sm.tick(6002), Action::Unlock);
+    EXPECT_EQ(sm.tick(7000), Action::Unlock);
 }
 
 // seen=false는 현재 무시됨 (타임아웃으로 통일). 타임아웃 경유 퇴실 후 재진입 테스트.
-TEST_F(StateMachineTest, TimeoutThenRedetectionAfterCooldownReturnsUnlock) {
+TEST_F(StateMachineTest, TimeoutThenRedetectionReturnsUnlock) {
     StateMachine sm(cfg);
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
@@ -99,9 +65,9 @@ TEST_F(StateMachineTest, TimeoutThenRedetectionAfterCooldownReturnsUnlock) {
     // 타임아웃으로 미감지 전환
     EXPECT_EQ(sm.tick(6001), Action::NoOp);
 
-    // 쿨다운 경과 후 재감지
-    sm.feed(mac_a, true, 121001);
-    EXPECT_EQ(sm.tick(121001), Action::Unlock);
+    // 재감지 → 즉시 Unlock
+    sm.feed(mac_a, true, 6500);
+    EXPECT_EQ(sm.tick(6500), Action::Unlock);
 }
 
 // 미등록 MAC feed -> device_count() 증가 (동적 슬롯)
@@ -149,7 +115,7 @@ TEST_F(StateMachineTest, MultipleDevicesAreIndependent) {
     // 두 번째 tick에서 mac_b가 Unlock
     EXPECT_EQ(sm.tick(1000), Action::Unlock);
 
-    // 이후 둘 다 쿨다운 내이므로 NoOp
+    // 이후 둘 다 감지 유지 중이므로 NoOp
     sm.feed(mac_a, true, 2000);
     sm.feed(mac_b, true, 2000);
     EXPECT_EQ(sm.tick(2000), Action::NoOp);
@@ -163,26 +129,11 @@ TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
 
     // 정확히 presence_timeout_ms(5000) 경과 시점 tick(6000)
     // 6000 - 1000 = 5000 >= 5000 → 미감지 전환
-    // 쿨다운 미충족이므로 NoOp 반환, 하지만 내부적으로 미감지 상태
     EXPECT_EQ(sm.tick(6000), Action::NoOp);
 
-    // 미감지 전환 확인: 쿨다운(120s=120000ms) 경과 후 재감지 → Unlock
-    sm.feed(mac_a, true, 121001);
-    EXPECT_EQ(sm.tick(121001), Action::Unlock);
-}
-
-// 정확히 cooldown 경계(120000ms)에서 Unlock
-TEST_F(StateMachineTest, ExactCooldownBoundaryReturnsUnlock) {
-    StateMachine sm(cfg);
-    sm.feed(mac_a, true, 1000);
-    EXPECT_EQ(sm.tick(1000), Action::Unlock);
-
-    // 타임아웃으로 미감지 전환
-    EXPECT_EQ(sm.tick(6001), Action::NoOp);
-
-    // 정확히 cooldown_sec(120) * 1000 = 120000ms 경과 후 재감지
-    sm.feed(mac_a, true, 121000);
-    EXPECT_EQ(sm.tick(121000), Action::Unlock);
+    // 미감지 전환 확인: 재감지 → 즉시 Unlock
+    sm.feed(mac_a, true, 6500);
+    EXPECT_EQ(sm.tick(6500), Action::Unlock);
 }
 
 // auto_unlock_enabled=false면 감지해도 Unlock 안 함
@@ -193,14 +144,14 @@ TEST_F(StateMachineTest, AutoUnlockDisabledSuppressesUnlock) {
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::NoOp);
 
-    // 타임아웃 경과 후 재감지 + 쿨다운 경과 — 여전히 NoOp
+    // 타임아웃 경과 후 재감지 — 여전히 NoOp
     EXPECT_EQ(sm.tick(6001), Action::NoOp);
-    sm.feed(mac_a, true, 121001);
-    EXPECT_EQ(sm.tick(121001), Action::NoOp);
+    sm.feed(mac_a, true, 7000);
+    EXPECT_EQ(sm.tick(7000), Action::NoOp);
 }
 
-// auto_unlock_enabled=false에서 true로 변경 후 정상 Unlock 동작
-TEST_F(StateMachineTest, AutoUnlockReenabledRestoresUnlock) {
+// auto_unlock_enabled=false에서 true로 변경 시, 이미 detected인 기기는 일괄 Unlock 안 함
+TEST_F(StateMachineTest, AutoUnlockReenabledDoesNotCauseFlood) {
     cfg.auto_unlock_enabled = false;
     StateMachine sm(cfg);
 
@@ -208,12 +159,17 @@ TEST_F(StateMachineTest, AutoUnlockReenabledRestoresUnlock) {
     sm.feed(mac_a, true, 1000);
     EXPECT_EQ(sm.tick(1000), Action::NoOp);
 
-    // 다시 활성화
+    // 다시 활성화 → 이미 detected인 기기는 "이미 처리됨"으로 마킹됨
     cfg.auto_unlock_enabled = true;
     sm.update_config(cfg);
 
-    // 이미 감지 중인 기기에 대해 최초 Unlock이 아직 안 된 상태이므로 Unlock
-    EXPECT_EQ(sm.tick(1001), Action::Unlock);
+    // 이미 감지 중인 기기에 대해 Unlock이 발생하지 않아야 함 (일괄 Unlock 방지)
+    EXPECT_EQ(sm.tick(1001), Action::NoOp);
+
+    // 퇴실 후 재감지하면 Unlock
+    EXPECT_EQ(sm.tick(6002), Action::NoOp);  // 타임아웃으로 미감지 전환
+    sm.feed(mac_a, true, 7000);
+    EXPECT_EQ(sm.tick(7000), Action::Unlock);
 }
 
 // 오래된 슬롯 정리

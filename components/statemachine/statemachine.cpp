@@ -98,6 +98,7 @@ Action StateMachine::tick(uint32_t now_ms) {
         // Unlock 판정
         if (dev.detected && config_.auto_unlock_enabled) {
             if (dev.last_unlock_ms == 0) {
+                // 최초 감지 → Unlock
                 dev.last_unlock_ms = now_ms;
                 dev.went_undetected = false;
 
@@ -107,15 +108,14 @@ Action StateMachine::tick(uint32_t now_ms) {
                 return Action::Unlock;
             }
 
-            uint32_t cooldown_ms = config_.cooldown_sec * 1000;
-            if (dev.went_undetected &&
-                (cooldown_ms == 0 || now_ms - dev.last_unlock_ms >= cooldown_ms)) {
+            if (dev.went_undetected) {
+                // 퇴실 후 재감지 → Unlock
                 dev.last_unlock_ms = now_ms;
                 dev.went_undetected = false;
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                ESP_LOGI(TAG, "%s → Unlock (재감지, 쿨다운 경과)", s);
+                ESP_LOGI(TAG, "%s → Unlock (재감지)", s);
                 return Action::Unlock;
             }
         }
@@ -136,7 +136,24 @@ int StateMachine::device_count() const {
 }
 
 void StateMachine::update_config(AppConfig cfg) {
+    bool was_disabled = !config_.auto_unlock_enabled;
+    bool now_enabled = cfg.auto_unlock_enabled;
     config_ = cfg;
+
+    // auto_unlock이 꺼졌다가 켜지면, 현재 detected인 기기들을
+    // "이미 한번 처리한 상태"로 마킹. 안 그러면 일괄 Unlock 폭주.
+    if (was_disabled && now_enabled) {
+        for (auto &dev : devices_) {
+            if (dev.valid && dev.detected) {
+                if (dev.last_unlock_ms == 0) {
+                    // 최초 감지 상태인 기기 — 이미 있는 것으로 간주
+                    // 다음에 퇴실 후 재감지될 때 Unlock 발행
+                    dev.last_unlock_ms = 1;  // 0이 아닌 값으로 설정 (최초 감지 조건 회피)
+                    dev.went_undetected = false;
+                }
+            }
+        }
+    }
 }
 
 void StateMachine::cleanup_stale(uint32_t now_ms) {
