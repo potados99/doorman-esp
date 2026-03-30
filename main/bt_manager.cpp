@@ -766,11 +766,6 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
             update_classic_presence(param->read_rmt_name.bda, param->read_rmt_name.rmt_name);
 
-            char name_addr_str[18] = {};
-            ESP_LOGI(kTag, "Classic present: %s name=%s",
-                     bda_to_str(param->read_rmt_name.bda, name_addr_str, sizeof(name_addr_str)),
-                     reinterpret_cast<const char *>(param->read_rmt_name.rmt_name));
-
             /* SM Task에 감지 이벤트 전달 */
             uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
             sm_feed_queue_send(
