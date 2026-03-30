@@ -82,11 +82,6 @@ static void sm_task(void *arg) {
         Action action = sm.tick(now_ms);
 
         /**
-         * Unlock 억제: SM은 항상 정상 판정(드라이런). 여기서만 실제 전달 여부 결정.
-         * - 유예기간: 재부팅 직후 기존 기기 flood 방지
-         * - auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
-         */
-        /**
          * Unlock 억제 — SM은 항상 드라이런 판정. 여기서만 실제 전달 결정.
          * 1. 유예기간: 재부팅 직후 기존 기기 flood 방지
          * 2. auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
