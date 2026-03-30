@@ -543,7 +543,7 @@ function loadDevices() {
 }
 
 function deleteDevice(mac) {
-    if (!confirm('Delete bond for ' + mac + '?\nThis cannot be undone. The device must re-pair.')) return;
+    if (!confirm(mac + ' 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.')) return;
     show('deviceStatus', 'Deleting ' + mac + '...', 'run');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/devices/delete');
