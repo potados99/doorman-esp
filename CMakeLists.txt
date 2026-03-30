@@ -62,21 +62,20 @@ else()
         "${CMAKE_SOURCE_DIR}/.git/refs/heads/main"
     )
 
-    # PROJECT_VER가 외부에서 안 주어지면 git revision count를 사용
-    if(NOT DEFINED PROJECT_VER)
-        execute_process(
-            COMMAND git rev-list --count HEAD
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            OUTPUT_VARIABLE PROJECT_VER
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET
-        )
-        if(NOT PROJECT_VER)
-            set(PROJECT_VER "0")
-        endif()
+    # git revision count를 PROJECT_VER로 사용.
+    # 외부에서 -DPROJECT_VER=N으로 오버라이드 가능 (GitHub Actions 등).
+    execute_process(
+        COMMAND git rev-list --count HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE _GIT_REV_COUNT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT _GIT_REV_COUNT)
+        set(_GIT_REV_COUNT "0")
     endif()
+    set(PROJECT_VER "${_GIT_REV_COUNT}")
 
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-    set(PROJECT_VER "${PROJECT_VER}" CACHE STRING "Project version" FORCE)
     project(doorman)
 endif()
