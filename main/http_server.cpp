@@ -141,7 +141,10 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
 static RingbufHandle_t s_log_ringbuf = nullptr;
 static vprintf_like_t s_original_vprintf = nullptr;
 static httpd_handle_t s_server = nullptr;
-static std::atomic<int> s_ws_fd{-1};  /* 현재 연결된 WS 클라이언트 fd. -1이면 미연결. */
+/** 동시 WS 클라이언트 최대 수. httpd 소켓 풀(기본 7)에서 API용을 빼면 4~5가 현실적. */
+static constexpr int kMaxWsClients = 5;
+static int s_ws_fds[kMaxWsClients] = {-1, -1, -1, -1, -1};
+static portMUX_TYPE s_ws_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /**
  * 커스텀 vprintf: 시리얼 출력 + Ring Buffer 복사.
@@ -183,21 +186,27 @@ static void ws_sender_task(void *) {
         void *item = xRingbufferReceive(s_log_ringbuf, &item_size, pdMS_TO_TICKS(100));
 
         if (item != nullptr && item_size > 0) {
-            int fd = s_ws_fd.load();
-            if (fd >= 0 && s_server != nullptr) {
+            if (s_server != nullptr) {
                 httpd_ws_frame_t pkt = {};
                 pkt.type = HTTPD_WS_TYPE_TEXT;
                 pkt.payload = static_cast<uint8_t *>(item);
                 pkt.len = item_size;
                 pkt.final = true;
 
-                esp_err_t err = httpd_ws_send_frame_async(s_server, fd, &pkt);
-                if (err != ESP_OK) {
-                    /**
-                     * 전송 실패 시 WS 연결이 끊어진 것으로 간주.
-                     * 다음 WS 연결 시 s_ws_fd가 새로 설정된다.
-                     */
-                    s_ws_fd.store(-1);
+                /** 모든 연결된 WS 클라이언트에 브로드캐스트. */
+                taskENTER_CRITICAL(&s_ws_lock);
+                int fds[kMaxWsClients];
+                std::memcpy(fds, s_ws_fds, sizeof(fds));
+                taskEXIT_CRITICAL(&s_ws_lock);
+
+                for (int i = 0; i < kMaxWsClients; ++i) {
+                    if (fds[i] < 0) continue;
+                    esp_err_t err = httpd_ws_send_frame_async(s_server, fds[i], &pkt);
+                    if (err != ESP_OK) {
+                        taskENTER_CRITICAL(&s_ws_lock);
+                        s_ws_fds[i] = -1;
+                        taskEXIT_CRITICAL(&s_ws_lock);
+                    }
                 }
             }
             vRingbufferReturnItem(s_log_ringbuf, item);
@@ -588,22 +597,30 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
 }
 
 /**
- * WebSocket 핸들러.
- *
- * 연결 시: s_ws_fd에 소켓 fd를 저장하여 ws_sender_task가 전송할 수 있게 한다.
- * 데이터 수신: 클라이언트 → 서버 메시지는 무시 (로그 스트리밍은 서버 → 클라이언트 단방향).
- * 연결 종료: httpd가 내부적으로 처리. s_ws_fd는 send 실패 시 -1로 리셋.
+ * WebSocket 핸들러. 최대 kMaxWsClients명 동시 접속.
+ * 연결 시: 빈 슬롯에 fd 추가. ws_sender_task가 전체 브로드캐스트.
+ * 연결 종료: send 실패 시 ws_sender_task가 슬롯 정리.
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
-        /**
-         * WS 핸드셰이크에서는 인증을 하지 않는다.
-         * 브라우저의 new WebSocket()은 커스텀 헤더(Authorization)를 보낼 수 없기 때문.
-         * 이미 index.html에 Basic Auth로 접속한 상태이고, WS는 로그 읽기 전용이므로 허용.
-         */
-        /* WebSocket 핸드셰이크 완료 시점 */
-        s_ws_fd.store(httpd_req_to_sockfd(req));
-        ESP_LOGI(TAG, "WebSocket client connected (fd=%d)", s_ws_fd.load());
+        int fd = httpd_req_to_sockfd(req);
+        bool added = false;
+
+        taskENTER_CRITICAL(&s_ws_lock);
+        for (int i = 0; i < kMaxWsClients; ++i) {
+            if (s_ws_fds[i] < 0) {
+                s_ws_fds[i] = fd;
+                added = true;
+                break;
+            }
+        }
+        taskEXIT_CRITICAL(&s_ws_lock);
+
+        if (added) {
+            ESP_LOGI(TAG, "WS client connected (fd=%d)", fd);
+        } else {
+            ESP_LOGW(TAG, "WS client rejected — max %d reached", kMaxWsClients);
+        }
         return ESP_OK;
     }
 
