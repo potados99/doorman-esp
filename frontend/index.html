@@ -40,13 +40,26 @@
             padding: 8px; border-radius: 8px;
             white-space: pre-wrap; word-break: break-all;
         }
-        #logArea.fullscreen {
+        #logSection.fullscreen {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             z-index: 999;
+            background: #0d1117;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+        }
+        #logSection.fullscreen #logArea {
+            flex: 1;
             height: auto;
             border-radius: 0;
             margin: 0;
+        }
+        #logSection.fullscreen .ws-status,
+        #logSection.fullscreen #tagFilters label,
+        #logSection.fullscreen #fsBtn,
+        #logSection.fullscreen #textFilter {
+            color: #c9d1d9;
         }
         .device-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85rem; }
         .device-item button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.8rem; }
@@ -74,11 +87,16 @@
         <button id="autoToggle" class="btn-orange" onclick="toggleAutoUnlock()">Auto-Unlock: Loading...</button>
 
         <h2>Live Log</h2>
-        <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
-        <div id="tagFilters" style="margin-bottom:6px;font-size:0.8rem;"></div>
-        <button onclick="toggleFullscreen()" id="fsBtn" style="float:right;padding:4px 8px;font-size:0.8rem;margin-bottom:4px;">&#x26F6; Fullscreen</button>
-        <div style="clear:both;"></div>
-        <div id="logArea"></div>
+        <div id="logSection">
+            <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
+            <div id="tagFilters" style="margin-bottom:6px;font-size:0.8rem;"></div>
+            <input type="text" id="textFilter" placeholder="Filter (e.g. C0:5D or Unlock)"
+                   oninput="renderFilteredLogs()"
+                   style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #444;border-radius:4px;background:#161b22;color:#c9d1d9;font-family:inherit;font-size:0.8rem;margin-bottom:6px;">
+            <button onclick="toggleFullscreen()" id="fsBtn" style="float:right;padding:4px 8px;font-size:0.8rem;margin-bottom:4px;">&#x26F6; Fullscreen</button>
+            <div style="clear:both;"></div>
+            <div id="logArea"></div>
+        </div>
     </div>
 
     <!-- Settings Tab -->
@@ -272,16 +290,16 @@ function updateWifi() {
 
 /* ── Fullscreen toggle ── */
 function toggleFullscreen() {
-    var area = document.getElementById('logArea');
-    area.classList.toggle('fullscreen');
+    var section = document.getElementById('logSection');
+    section.classList.toggle('fullscreen');
     var btn = document.getElementById('fsBtn');
-    btn.textContent = area.classList.contains('fullscreen') ? '\u2715 Exit' : '\u26F6 Fullscreen';
+    btn.textContent = section.classList.contains('fullscreen') ? '\u2715 Exit' : '\u26F6 Fullscreen';
 }
 
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
-        var area = document.getElementById('logArea');
-        if (area.classList.contains('fullscreen')) toggleFullscreen();
+        var section = document.getElementById('logSection');
+        if (section.classList.contains('fullscreen')) toggleFullscreen();
     }
 });
 
@@ -333,12 +351,13 @@ function onTagChange() {
 
 function renderFilteredLogs() {
     var area = document.getElementById('logArea');
+    var textFilter = document.getElementById('textFilter').value.toLowerCase();
     var filtered = [];
     for (var i = 0; i < rawLogs.length; i++) {
         var tag = extractTag(rawLogs[i]);
-        if (tag === null || knownTags[tag]) {
-            filtered.push(rawLogs[i]);
-        }
+        if (tag !== null && !knownTags[tag]) continue;
+        if (textFilter && rawLogs[i].toLowerCase().indexOf(textFilter) === -1) continue;
+        filtered.push(rawLogs[i]);
     }
     area.textContent = filtered.join('\n');
     area.scrollTop = area.scrollHeight;

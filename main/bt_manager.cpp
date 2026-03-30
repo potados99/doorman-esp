@@ -606,6 +606,10 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         if (s_pairing_mode.load()) return;
 
         /* SM Task에 감지 이벤트 전달 (RSSI 포함) */
+        char identity_str[18] = {};
+        bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
+        ESP_LOGI(kTag, "BLE %s RSSI=%d", identity_str, scan_rst.rssi);
+
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
             reinterpret_cast<const uint8_t(&)[6]>(peers_snap[matched_index].identity_addr),
