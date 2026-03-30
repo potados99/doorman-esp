@@ -68,9 +68,11 @@ static void sm_task(void *arg) {
         sm.update_config(app_config_get());
 
         if (got == pdTRUE) {
-            char mac_str[18];
-            mac_to_str(msg.mac, mac_str, sizeof(mac_str));
-            ESP_LOGI(TAG, "Feed: %s seen=%s", mac_str, msg.seen ? "yes" : "no");
+            if (msg.seen) {
+                char mac_str[18];
+                mac_to_str(msg.mac, mac_str, sizeof(mac_str));
+                ESP_LOGI(TAG, "Feed: %s seen", mac_str);
+            }
 
             sm.feed(msg.mac, msg.seen, msg.now_ms);
         }
