@@ -713,18 +713,46 @@ void presence_task(void *) {
                 char addr_str[18] = {};
                 bda_to_str(cmd.mac, addr_str, sizeof(addr_str));
 
-                esp_err_t ble_err = esp_ble_remove_bond_device(cmd.mac);
-                if (ble_err == ESP_OK) {
-                    ESP_LOGI(kTag, "BLE bond removed: %s", addr_str);
-                } else {
-                    ESP_LOGW(kTag, "BLE bond remove skipped: %s (%s)", addr_str, esp_err_to_name(ble_err));
+                /**
+                 * BLE 삭제: identity address로 요청이 오지만, esp_ble_remove_bond_device()는
+                 * 본딩 시 사용된 bd_addr를 기대한다. bond list에서 identity address가 일치하는
+                 * 항목의 bd_addr를 찾아서 삭제해야 한다.
+                 */
+                bool ble_removed = false;
+                {
+                    int dev_num = kMaxBleBondedDevices;
+                    esp_ble_bond_dev_t dev_list[kMaxBleBondedDevices] = {};
+                    if (esp_ble_get_bond_device_list(&dev_num, dev_list) == ESP_OK) {
+                        for (int i = 0; i < dev_num; ++i) {
+                            /* identity address가 일치하는 bond 찾기 */
+                            esp_bd_addr_t id_addr = {};
+                            if ((dev_list[i].bond_key.key_mask & ESP_BLE_ID_KEY_MASK) != 0) {
+                                std::memcpy(id_addr, dev_list[i].bond_key.pid_key.static_addr, 6);
+                            } else {
+                                std::memcpy(id_addr, dev_list[i].bd_addr, 6);
+                            }
+                            if (std::memcmp(id_addr, cmd.mac, 6) == 0) {
+                                esp_err_t err = esp_ble_remove_bond_device(dev_list[i].bd_addr);
+                                if (err == ESP_OK) {
+                                    ESP_LOGI(kTag, "BLE bond removed: %s", addr_str);
+                                    ble_removed = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!ble_removed) {
+                    /* identity == bd_addr인 경우 직접 시도 */
+                    esp_err_t err = esp_ble_remove_bond_device(cmd.mac);
+                    if (err == ESP_OK) {
+                        ESP_LOGI(kTag, "BLE bond removed (direct): %s", addr_str);
+                    }
                 }
 
                 esp_err_t classic_err = esp_bt_gap_remove_bond_device(cmd.mac);
                 if (classic_err == ESP_OK) {
                     ESP_LOGI(kTag, "Classic bond removed: %s", addr_str);
-                } else {
-                    ESP_LOGW(kTag, "Classic bond remove skipped: %s (%s)", addr_str, esp_err_to_name(classic_err));
                 }
 
                 /* 삭제 후 bond 캐시 갱신 */
