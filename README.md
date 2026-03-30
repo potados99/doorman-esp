@@ -247,6 +247,7 @@ main/
   config_service.h / config_service.cpp
   door_control.h / door_control.cpp
   nvs_config.h / nvs_config.cpp
+  idf_component.yml
   CMakeLists.txt
 scripts/
   ota_upload.sh

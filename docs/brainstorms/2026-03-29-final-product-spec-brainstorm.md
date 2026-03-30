@@ -185,11 +185,13 @@ components/
 
 main/
   main.cpp           # 초기화 흐름
-  wifi.cpp           # STA/SoftAP (현재 구현 유지)
+  wifi.h / wifi.cpp           # STA/SoftAP (현재 구현 유지)
   http_server.cpp    # 모드별 웹서버 + API + WebSocket
   bt_manager.cpp     # BT 스캔 태스크 (PoC 전면 재작성)
   sm_task.cpp        # StateMachine 구동 태스크 + 입력 큐
   control_task.cpp   # 문 제어 태스크 + 명령 큐
+  door_control.h / door_control.cpp   # GPIO 도어 제어
+  nvs_config.h / nvs_config.cpp       # NVS 설정 읽기/쓰기
   config_service.cpp # AppConfig get/set + NVS 영속 + lock
   ota_updater.cpp    # GitHub Releases 폴링 + OTA (예정)
 
