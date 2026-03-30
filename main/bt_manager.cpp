@@ -782,10 +782,6 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
              * Classic은 BLE와 달리 명시적 실패가 있으므로
              * 즉시 seen=false를 SM에 전달한다.
              */
-            char fail_addr_str[18] = {};
-            ESP_LOGI(kTag, "Classic absent: %s",
-                     bda_to_str(param->read_rmt_name.bda, fail_addr_str, sizeof(fail_addr_str)));
-
             uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
             sm_feed_queue_send(
                 reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
