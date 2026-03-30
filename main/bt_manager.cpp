@@ -771,17 +771,8 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             sm_feed_queue_send(
                 reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
                 true, now_ms);
-        } else {
-            /**
-             * probe 실패 = 기기가 응답하지 않음 = 미감지.
-             * Classic은 BLE와 달리 명시적 실패가 있으므로
-             * 즉시 seen=false를 SM에 전달한다.
-             */
-            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-            sm_feed_queue_send(
-                reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
-                false, now_ms);
         }
+        /* probe 실패는 무시. 타임아웃으로 미감지 전환 (BLE와 동일 정책). */
         break;
 
     default:
