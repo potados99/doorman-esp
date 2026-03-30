@@ -1,4 +1,5 @@
 #include "sm_task.h"
+#include "config_service.h"
 #include "control_task.h"
 #include "statemachine.h"
 
@@ -62,6 +63,9 @@ static void sm_task(void *arg) {
          * 이 패턴으로 별도 타이머 없이 주기적 tick을 보장한다.
          */
         BaseType_t got = xQueueReceive(s_queue, &msg, pdMS_TO_TICKS(kTickIntervalMs));
+
+        /* 매 tick마다 최신 config 반영 (auto_unlock 토글 등 런타임 변경) */
+        sm.update_config(app_config_get());
 
         if (got == pdTRUE) {
             char mac_str[18];

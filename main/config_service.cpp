@@ -13,6 +13,7 @@ static const char *TAG = "cfg_svc";
 static constexpr const char *kNvsNamespace = "door";
 static constexpr const char *kKeyCooldown = "cooldown";
 static constexpr const char *kKeyTimeout = "timeout";
+static constexpr const char *kKeyAutoUnlock = "auto";
 
 static AppConfig s_config = {};
 static SemaphoreHandle_t s_mutex = nullptr;
@@ -38,6 +39,10 @@ static void load_from_nvs() {
     if (nvs_get_u32(handle, kKeyTimeout, &val) == ESP_OK) {
         loaded.presence_timeout_ms = val;
     }
+    uint8_t auto_val;
+    if (nvs_get_u8(handle, kKeyAutoUnlock, &auto_val) == ESP_OK) {
+        loaded.auto_unlock_enabled = (auto_val != 0);
+    }
 
     nvs_close(handle);
 
@@ -50,9 +55,10 @@ static void load_from_nvs() {
 
     s_config = loaded;
 
-    ESP_LOGI(TAG, "Config loaded from NVS: cooldown=%lus, timeout=%lums",
+    ESP_LOGI(TAG, "Config loaded from NVS: cooldown=%lus, timeout=%lums, auto_unlock=%s",
              (unsigned long)s_config.cooldown_sec,
-             (unsigned long)s_config.presence_timeout_ms);
+             (unsigned long)s_config.presence_timeout_ms,
+             s_config.auto_unlock_enabled ? "on" : "off");
 }
 
 /** NVS에 현재 설정을 저장한다. mutex는 호출자가 이미 획득한 상태. */
@@ -66,12 +72,14 @@ static void save_to_nvs() {
 
     nvs_set_u32(handle, kKeyCooldown, s_config.cooldown_sec);
     nvs_set_u32(handle, kKeyTimeout, s_config.presence_timeout_ms);
+    nvs_set_u8(handle, kKeyAutoUnlock, s_config.auto_unlock_enabled ? 1 : 0);
     nvs_commit(handle);
     nvs_close(handle);
 
-    ESP_LOGI(TAG, "Config saved to NVS: cooldown=%lus, timeout=%lums",
+    ESP_LOGI(TAG, "Config saved to NVS: cooldown=%lus, timeout=%lums, auto_unlock=%s",
              (unsigned long)s_config.cooldown_sec,
-             (unsigned long)s_config.presence_timeout_ms);
+             (unsigned long)s_config.presence_timeout_ms,
+             s_config.auto_unlock_enabled ? "on" : "off");
 }
 
 void config_service_init() {

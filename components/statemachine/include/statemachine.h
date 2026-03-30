@@ -58,6 +58,13 @@ public:
     /** 현재 추적 중인(valid 슬롯이 있는) 기기 수. */
     [[nodiscard]] int device_count() const;
 
+    /**
+     * 런타임에 설정을 갱신한다.
+     * SM Task가 유일한 소유자이므로 외부 동기화 불필요.
+     * auto_unlock_enabled 토글 등 런타임 설정 변경을 반영하기 위해 사용.
+     */
+    void update_config(AppConfig cfg);
+
     /** 현재 설정 값을 반환한다. 로깅/디버깅 용도. */
     [[nodiscard]] const AppConfig &config() const { return config_; }
 

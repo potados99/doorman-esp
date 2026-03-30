@@ -60,6 +60,8 @@
         <button class="btn-green" onclick="openDoor()">Open Door</button>
         <div id="doorStatus" class="status"></div>
 
+        <button id="autoToggle" class="btn-orange" onclick="toggleAutoUnlock()">Auto-Unlock: Loading...</button>
+
         <h2>Live Log</h2>
         <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
         <div id="logArea"></div>
@@ -149,6 +151,34 @@ function post(url, body, statusId, okMsg, reboot) {
 function openDoor() {
     show('doorStatus', 'Sending...', 'run');
     post('/api/door/open', null, 'doorStatus', 'Door opened!', false);
+}
+
+function toggleAutoUnlock() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/auto-unlock/toggle');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            var enabled = xhr.responseText === 'enabled';
+            var btn = document.getElementById('autoToggle');
+            btn.textContent = 'Auto-Unlock: ' + (enabled ? 'ON' : 'OFF');
+            btn.className = enabled ? 'btn-green' : 'btn-danger';
+        }
+    };
+    xhr.send(null);
+}
+
+function loadAutoUnlockStatus() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/auto-unlock/status');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            var enabled = xhr.responseText === 'enabled';
+            var btn = document.getElementById('autoToggle');
+            btn.textContent = 'Auto-Unlock: ' + (enabled ? 'ON' : 'OFF');
+            btn.className = enabled ? 'btn-green' : 'btn-danger';
+        }
+    };
+    xhr.send();
 }
 
 function startPairing() {
@@ -260,6 +290,7 @@ function wsConnect() {
 }
 
 wsConnect();
+loadAutoUnlockStatus();
 </script>
 </body>
 </html>

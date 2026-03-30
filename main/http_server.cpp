@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "bt_manager.h"
+#include "config_service.h"
 #include "control_task.h"
 #include "door_control.h"
 #include "nvs_config.h"
@@ -413,6 +414,27 @@ static esp_err_t pairing_start_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", "Pairing started (30s window)");
 }
 
+/** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
+static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    AppConfig cfg = app_config_get();
+    cfg.auto_unlock_enabled = !cfg.auto_unlock_enabled;
+    app_config_set(cfg);
+
+    const char *state = cfg.auto_unlock_enabled ? "enabled" : "disabled";
+    ESP_LOGI(TAG, "Auto-unlock %s", state);
+    return send_text(req, "200 OK", state);
+}
+
+/** BT 자동 문열림 현재 상태 조회. */
+static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    AppConfig cfg = app_config_get();
+    return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
+}
+
 /**
  * WebSocket 핸들러.
  *
@@ -507,7 +529,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 14;
 
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -525,15 +547,17 @@ httpd_handle_t start_webserver(WifiMode mode) {
         ok = register_routes(server, softap_routes, 2);
     } else {
         static const Route sta_routes[] = {
-            {"/",                      HTTP_GET,  index_page_handler,   false},
-            {"/api/door/open",         HTTP_POST, door_open_handler,    false},
-            {"/api/firmware/upload",   HTTP_POST, ota_upload_handler,   false},
-            {"/api/auth/update",       HTTP_POST, auth_update_handler,  false},
-            {"/api/wifi/update",       HTTP_POST, wifi_update_handler,  false},
-            {"/api/pairing/start",     HTTP_POST, pairing_start_handler, false},
-            {"/ws",                    HTTP_GET,  ws_handler,           true},
+            {"/",                          HTTP_GET,  index_page_handler,          false},
+            {"/api/door/open",             HTTP_POST, door_open_handler,           false},
+            {"/api/firmware/upload",       HTTP_POST, ota_upload_handler,          false},
+            {"/api/auth/update",           HTTP_POST, auth_update_handler,         false},
+            {"/api/wifi/update",           HTTP_POST, wifi_update_handler,         false},
+            {"/api/pairing/start",         HTTP_POST, pairing_start_handler,       false},
+            {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
+            {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
+            {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 7);
+        ok = register_routes(server, sta_routes, 9);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

@@ -59,7 +59,9 @@ Action StateMachine::tick(uint32_t now_ms) {
         }
 
         // 2. Unlock 판정: 감지 중이고 쿨다운 조건 충족 시
-        if (dev.detected) {
+        //    auto_unlock_enabled가 false이면 Unlock을 발행하지 않는다.
+        //    상태 추적(감지/미감지/타임아웃)은 계속 동작하여, 다시 켰을 때 즉시 정상 동작.
+        if (dev.detected && config_.auto_unlock_enabled) {
             if (dev.last_unlock_ms == 0) {
                 // 최초 감지 -> 무조건 Unlock
                 dev.last_unlock_ms = now_ms;
@@ -89,6 +91,10 @@ int StateMachine::device_count() const {
         }
     }
     return count;
+}
+
+void StateMachine::update_config(AppConfig cfg) {
+    config_ = cfg;
 }
 
 void StateMachine::cleanup_stale(uint32_t now_ms) {

@@ -195,6 +195,37 @@ TEST_F(StateMachineTest, ExactCooldownBoundaryReturnsUnlock) {
     EXPECT_EQ(sm.tick(121000), Action::Unlock);
 }
 
+// auto_unlock_enabled=false면 감지해도 Unlock 안 함
+TEST_F(StateMachineTest, AutoUnlockDisabledSuppressesUnlock) {
+    cfg.auto_unlock_enabled = false;
+    StateMachine sm(cfg);
+
+    sm.feed(mac_a, true, 1000);
+    EXPECT_EQ(sm.tick(1000), Action::NoOp);
+
+    // 타임아웃 경과 후 재감지 + 쿨다운 경과 — 여전히 NoOp
+    EXPECT_EQ(sm.tick(6001), Action::NoOp);
+    sm.feed(mac_a, true, 121001);
+    EXPECT_EQ(sm.tick(121001), Action::NoOp);
+}
+
+// auto_unlock_enabled=false에서 true로 변경 후 정상 Unlock 동작
+TEST_F(StateMachineTest, AutoUnlockReenabledRestoresUnlock) {
+    cfg.auto_unlock_enabled = false;
+    StateMachine sm(cfg);
+
+    // 비활성 상태에서 감지 — Unlock 안 함
+    sm.feed(mac_a, true, 1000);
+    EXPECT_EQ(sm.tick(1000), Action::NoOp);
+
+    // 다시 활성화
+    cfg.auto_unlock_enabled = true;
+    sm.update_config(cfg);
+
+    // 이미 감지 중인 기기에 대해 최초 Unlock이 아직 안 된 상태이므로 Unlock
+    EXPECT_EQ(sm.tick(1001), Action::Unlock);
+}
+
 // 오래된 슬롯 정리
 TEST_F(StateMachineTest, StaleDevicesAreCleaned) {
     StateMachine sm(cfg);

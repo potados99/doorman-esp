@@ -23,6 +23,14 @@ struct AppConfig {
      * BLE는 advertising 수신 간격에 의존하므로 너무 짧으면 false negative 발생.
      */
     uint32_t presence_timeout_ms = 5000;
+
+    /**
+     * BT 자동 문열림 활성화 여부.
+     * false이면 BT 기기가 감지되어도 자동으로 문을 열지 않는다.
+     * 상태 추적(감지/미감지/타임아웃)은 계속 동작하여, 다시 켰을 때 즉시 정상 동작.
+     * 웹 UI의 수동 문열기(ManualUnlock)는 이 값과 무관하게 항상 가능.
+     */
+    bool auto_unlock_enabled = true;
 };
 
 /**
