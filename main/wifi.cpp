@@ -17,12 +17,14 @@ static const char *TAG = "wifi";
 
 static const char *kApSsid = "Doorman-Setup";
 static const char *kApPassword = "12345678";
-static const int kStaTimeoutMs = 10000;
+static const int kStaTimeoutMs = 15000;
+static const int kMaxRetries = 3;
 
 static const int CONNECTED_BIT = BIT0;
 static const int FAIL_BIT = BIT1;
 
 static EventGroupHandle_t s_event_group = nullptr;
+static int s_retry_count = 0;
 
 // ── Event handler ──
 
@@ -33,8 +35,14 @@ static void event_handler(void *, esp_event_base_t base, int32_t id, void *data)
             auto *e = static_cast<wifi_event_sta_disconnected_t *>(data);
             ESP_LOGW(TAG, "STA disconnected (reason=%d)", e->reason);
             if (s_event_group) {
-                // 초기 접속 시도 중 — 실패 알림
-                xEventGroupSetBits(s_event_group, FAIL_BIT);
+                // 초기 접속 시도 중 — 재시도 또는 실패
+                if (s_retry_count < kMaxRetries) {
+                    s_retry_count++;
+                    ESP_LOGI(TAG, "Retrying... (%d/%d)", s_retry_count, kMaxRetries);
+                    esp_wifi_connect();
+                } else {
+                    xEventGroupSetBits(s_event_group, FAIL_BIT);
+                }
             } else {
                 // 운영 중 끊김 — 자동 재접속
                 ESP_LOGI(TAG, "Reconnecting...");
@@ -100,6 +108,7 @@ static void init_common() {
 }
 
 static bool try_sta(const WifiConfig &cred) {
+    s_retry_count = 0;
     s_event_group = xEventGroupCreate();
 
     wifi_config_t config = {};
