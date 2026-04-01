@@ -454,6 +454,16 @@ static esp_err_t ws_token_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", s_ws_token);
 }
 
+/** 기기 재부팅. */
+static esp_err_t reboot_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    send_text(req, "200 OK", "Rebooting...");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
 /** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
 static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
@@ -743,6 +753,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/pairing/status",        HTTP_GET,  pairing_status_handler,      false},
             {"/api/build-info",            HTTP_GET,  build_info_handler,          false},
             {"/api/ws-token",              HTTP_GET,  ws_token_handler,            false},
+            {"/api/reboot",                HTTP_POST, reboot_handler,              false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
@@ -751,7 +762,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 16);
+        ok = register_routes(server, sta_routes, 17);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

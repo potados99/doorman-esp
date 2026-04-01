@@ -1,179 +1,300 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Doorman</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 520px; margin: 0 auto; padding: 16px; line-height: 1.4; color: #1f2328; }
-        h1 { font-size: 1.4rem; margin: 0 0 12px; }
-        h2 { font-size: 1.1rem; margin: 20px 0 8px; padding-top: 12px; border-top: 1px solid #eee; }
-        h2:first-of-type { border-top: none; padding-top: 0; }
-        label { display: block; font-size: 0.85rem; font-weight: 600; margin: 8px 0 4px; }
-        input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
-        input[type="file"] { width: 100%; box-sizing: border-box; }
-        button { width: 100%; margin-top: 10px; padding: 10px 14px; border: 0; border-radius: 8px; background: #1f6feb; color: #fff; font: inherit; cursor: pointer; }
-        button:disabled { background: #8b949e; cursor: not-allowed; }
-        .btn-danger { background: #da3633; }
-        .btn-green { background: #238636; }
-        .btn-orange { background: #d29922; }
-        progress { width: 100%; height: 18px; margin-top: 10px; display: none; }
-        .status { margin-top: 8px; padding: 8px 10px; border-radius: 6px; display: none; font-size: 0.9rem; }
-        .ok { background: #dafbe1; color: #116329; }
-        .err { background: #ffebe9; color: #a40e26; }
-        .run { background: #ddf4ff; color: #0550ae; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        /* Tabs */
-        .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #ddd; }
-        .tab { -webkit-appearance: none; appearance: none; padding: 8px 16px; cursor: pointer; border: none; border-radius: 0; background: none; font: inherit; font-weight: 600; color: #656d76; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-        .tab.active { color: #1f6feb; border-bottom-color: #1f6feb; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #fff;
+            color: #111;
+            line-height: 1.55;
+            max-width: 520px;
+            margin: 0 auto;
+            padding: 20px 16px 40px;
+        }
+
+        /* ── Header ── */
+        .hdr { margin-bottom: 20px; }
+        .hdr h1 { font-size: 1.5rem; font-weight: 700; }
+        .hdr-meta { font-size: 0.72rem; color: #9ca3af; margin-top: 2px; }
+        .hdr-meta a { color: #9ca3af; text-decoration: none; }
+        .hdr-meta a:hover { color: #6b7280; }
+
+        /* ── Tabs — underline, web-native ── */
+        .tabs { display: flex; gap: 20px; border-bottom: 1px solid #e5e7eb; margin-bottom: 20px; }
+        .tab {
+            -webkit-appearance: none; appearance: none;
+            background: none; border: none; border-bottom: 2px solid transparent;
+            padding: 6px 0 10px; margin-bottom: -1px;
+            font: inherit; font-size: 0.88rem; font-weight: 600;
+            color: #9ca3af; cursor: pointer;
+        }
+        .tab.active { color: #111; border-bottom-color: #111; }
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
 
-        /* Log area */
+        /* ── Primary action ── */
+        .door-btn {
+            display: block; width: 100%;
+            padding: 16px;
+            background: #16a34a; color: #fff;
+            border: none; border-radius: 8px;
+            font: inherit; font-size: 1.05rem; font-weight: 700;
+            cursor: pointer;
+            transition: background 0.12s;
+        }
+        .door-btn:active { background: #15803d; }
+
+        /* ── Toggle pill ── */
+        .auto-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 14px; padding: 12px 14px;
+            border: 1px solid #e5e7eb; border-radius: 8px;
+        }
+        .auto-row span { font-size: 0.88rem; color: #374151; }
+        .pill {
+            width: auto; padding: 5px 14px; margin: 0;
+            border: none; border-radius: 99px;
+            font: inherit; font-size: 0.75rem; font-weight: 700;
+            letter-spacing: 0.3px; cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .pill.off { background: #f3f4f6; color: #9ca3af; }
+        .pill.on { background: #16a34a; color: #fff; }
+
+        /* ── Section ── */
+        .section { margin-top: 24px; }
+        .section-title {
+            font-size: 0.72rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.6px;
+            color: #9ca3af; margin-bottom: 10px;
+        }
+
+        /* ── Card ── */
+        .card {
+            border: 1px solid #e5e7eb; border-radius: 8px;
+            padding: 14px; margin-bottom: 10px;
+        }
+        .card-label {
+            font-size: 0.72rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.4px;
+            color: #9ca3af; margin-bottom: 10px;
+        }
+
+        /* ── Status ── */
+        .status { margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 0.82rem; display: none; }
+        .ok { background: #ecfdf5; color: #065f46; }
+        .err { background: #fef2f2; color: #991b1b; }
+        .run { background: #eff6ff; color: #1e40af; }
+
+        /* ── Inputs ── */
+        label { display: block; font-size: 0.78rem; font-weight: 500; color: #6b7280; margin: 10px 0 3px; }
+        input[type="text"], input[type="password"], input[type="number"] {
+            width: 100%; padding: 9px 10px;
+            border: 1px solid #e5e7eb; border-radius: 6px;
+            font: inherit; font-size: 0.88rem;
+            background: #f9fafb; color: #111;
+        }
+        input:focus { outline: none; border-color: #2563eb; }
+        input[type="file"] { width: 100%; font-size: 0.82rem; margin-top: 4px; }
+
+        /* ── Buttons ── */
+        .btn {
+            display: block; width: 100%; padding: 10px;
+            border: none; border-radius: 6px;
+            font: inherit; font-size: 0.88rem; font-weight: 600;
+            cursor: pointer; margin-top: 10px;
+            transition: opacity 0.12s;
+        }
+        .btn:active { opacity: 0.7; }
+        .btn-blue { background: #2563eb; color: #fff; }
+        .btn-red { background: #dc2626; color: #fff; }
+        .btn-orange { background: #ea580c; color: #fff; }
+        .btn-green { background: #16a34a; color: #fff; }
+        button:disabled { opacity: 0.35; cursor: not-allowed; }
+        progress { width: 100%; height: 4px; margin-top: 8px; display: none; border-radius: 2px; }
+        .hint { font-size: 0.75rem; color: #9ca3af; line-height: 1.45; margin-bottom: 6px; }
+
+        /* ── Device list ── */
+        .dev-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid #f3f4f6;
+            font-family: 'Menlo', 'Consolas', monospace; font-size: 0.78rem; color: #6b7280;
+        }
+        .dev-row:last-child { border-bottom: none; }
+        .dev-row button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.72rem; border-radius: 4px; }
+        #deviceList:empty::after { content: '등록된 기기 없음'; color: #d1d5db; font-size: 0.82rem; font-family: system-ui, sans-serif; }
+
+        /* ── Log terminal ── */
+        .log-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .ws-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+        .dot-ok { background: #16a34a; }
+        .dot-err { background: #dc2626; }
+        .dot-wait { background: #f59e0b; }
+        .ws-label { font-size: 0.72rem; color: #9ca3af; }
+        .fs-link {
+            background: none; border: none; width: auto; margin: 0; padding: 0;
+            font: inherit; font-size: 0.72rem; color: #9ca3af; cursor: pointer; text-decoration: underline;
+        }
+        #tagFilters { margin-bottom: 5px; font-size: 0.72rem; color: #6b7280; }
+        #tagFilters label { display: inline; margin-right: 7px; font-weight: normal; font-size: 0.72rem; color: #6b7280; }
+        #textFilter {
+            width: 100%; padding: 7px 9px;
+            border: none; border-radius: 6px;
+            background: #0f172a; color: #cbd5e1;
+            font-family: 'Menlo', 'Consolas', monospace; font-size: 0.72rem;
+            margin-bottom: 5px;
+        }
+        #textFilter::placeholder { color: #475569; }
         #logArea {
-            width: 100%; box-sizing: border-box;
-            height: 320px; overflow-y: auto;
-            background: #0d1117; color: #c9d1d9;
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-            font-size: 0.75rem; line-height: 1.5;
-            padding: 8px; border-radius: 8px;
+            width: 100%; height: 280px; overflow-y: auto;
+            background: #0f172a; color: #94a3b8;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 0.7rem; line-height: 1.65;
+            padding: 10px; border-radius: 6px;
             white-space: pre-wrap; word-break: break-all;
         }
+
+        /* ── Fullscreen ── */
         #logSection.fullscreen {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            z-index: 999;
-            background: #0d1117;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
+            position: fixed; inset: 0; z-index: 999;
+            background: #0f172a; padding: 10px;
+            display: flex; flex-direction: column;
         }
-        #logSection.fullscreen #logArea {
-            flex: 1;
-            height: auto;
-            border-radius: 0;
-            margin: 0;
-        }
-        #logSection.fullscreen .ws-status,
+        #logSection.fullscreen #logArea { flex: 1; height: auto; border-radius: 0; }
+        #logSection.fullscreen .ws-label,
         #logSection.fullscreen #tagFilters label,
-        #logSection.fullscreen #fsBtn,
-        #logSection.fullscreen #textFilter {
-            color: #c9d1d9;
+        #logSection.fullscreen .fs-link { color: #64748b; }
+
+        /* ── Responsive ── */
+        @media (min-width: 600px) {
+            body { padding: 32px 20px 48px; }
+            #logArea { height: 380px; }
         }
-        .device-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.85rem; }
-        .device-item button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.8rem; }
-        #tagFilters label { display: inline-block; margin-right: 8px; font-weight: normal; cursor: pointer; }
-        .ws-status { font-size: 0.8rem; margin-bottom: 6px; color: #656d76; }
-        .ws-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-        .dot-ok { background: #238636; }
-        .dot-err { background: #da3633; }
-        .dot-wait { background: #d29922; }
     </style>
 </head>
 <body>
-    <h1>Doorman</h1>
-    <p style="font-size:0.75rem;color:#8b949e;margin:-8px 0 12px;">
-        <span id="buildInfo">Build: loading...</span>
-        <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener"
-           style="margin-left:8px;color:#656d76;text-decoration:none;">GitHub ↗</a>
-    </p>
 
-    <div class="tabs">
-        <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
-        <button class="tab" onclick="switchTab('settings')">Settings</button>
+<div class="hdr">
+    <h1>Doorman</h1>
+    <div class="hdr-meta">
+        <span id="buildInfo">loading...</span> · <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+</div>
+
+<div class="tabs">
+    <button class="tab active" onclick="switchTab('dashboard')">대시보드</button>
+    <button class="tab" onclick="switchTab('settings')">설정</button>
+</div>
+
+<!-- ── Dashboard ── -->
+<div id="tab-dashboard" class="tab-panel active">
+    <button class="door-btn" onclick="openDoor()">문 열기</button>
+    <div id="doorStatus" class="status"></div>
+
+    <div class="auto-row">
+        <span>자동 열림</span>
+        <button id="autoToggle" class="pill off" onclick="toggleAutoUnlock()">OFF</button>
     </div>
 
-    <!-- Dashboard Tab -->
-    <div id="tab-dashboard" class="tab-panel active">
-        <button class="btn-green" onclick="openDoor()">Open Door</button>
-        <div id="doorStatus" class="status"></div>
-
-        <button id="autoToggle" class="btn-orange" onclick="toggleAutoUnlock()">Auto-Unlock: Loading...</button>
-
-        <h2>Live Log</h2>
+    <div class="section">
+        <div class="section-title">실시간 로그</div>
         <div id="logSection">
-            <div class="ws-status"><span id="wsDot" class="dot dot-wait"></span><span id="wsLabel">Connecting...</span></div>
-            <div id="tagFilters" style="margin-bottom:6px;font-size:0.8rem;"></div>
-            <input type="text" id="textFilter" placeholder="Filter (e.g. C0:5D or Unlock)"
-                   oninput="renderFilteredLogs()"
-                   style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #444;border-radius:4px;background:#161b22;color:#c9d1d9;font-family:inherit;font-size:0.8rem;margin-bottom:6px;">
-            <button onclick="toggleFullscreen()" id="fsBtn" style="float:right;padding:4px 8px;font-size:0.8rem;margin-bottom:4px;">&#x26F6; Fullscreen</button>
-            <div style="clear:both;"></div>
+            <div class="log-head">
+                <span class="ws-label"><span id="wsDot" class="ws-dot dot-wait"></span><span id="wsLabel">연결 중...</span></span>
+                <button onclick="toggleFullscreen()" id="fsBtn" class="fs-link">전체화면</button>
+            </div>
+            <div id="tagFilters"></div>
+            <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)" oninput="renderFilteredLogs()">
             <div id="logArea"></div>
         </div>
     </div>
+</div>
 
-    <!-- Settings Tab -->
-    <div id="tab-settings" class="tab-panel">
-        <!-- Bonded Devices -->
-        <h2>Bonded Devices</h2>
-        <div id="deviceList">Loading...</div>
+<!-- ── Settings ── -->
+<div id="tab-settings" class="tab-panel">
+
+    <div class="card">
+        <div class="card-label">등록된 기기</div>
+        <div id="deviceList"></div>
         <div id="deviceStatus" class="status"></div>
-
-        <!-- Tuning -->
-        <h2>Presence Tuning</h2>
-        <p style="font-size:0.85rem;color:#656d76;margin:0 0 8px;">Enter: 윈도우 내 RSSI 조건 충족 관측 N회 이상이면 재실</p>
-        <label for="enterWindow">Enter Window (ms)</label>
-        <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
-        <label for="enterCount">Enter Min Count</label>
-        <input id="enterCount" type="number" min="1" max="10" value="3">
-        <label for="rssiThresh">Enter RSSI Threshold (dBm)</label>
-        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
-        <p style="font-size:0.85rem;color:#656d76;margin:12px 0 8px;">Exit: feed 없이 이 시간 지속되면 퇴실</p>
-        <label for="presTimeout">Exit Timeout (ms)</label>
-        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
-        <button onclick="saveTuning()">Save</button>
-        <div id="tuningStatus" class="status"></div>
-
-        <!-- Pairing -->
-        <h2>Bluetooth Pairing</h2>
-        <button id="pairBtn" class="btn-orange" onclick="togglePairing()">Pairing: Loading...</button>
-        <div id="pairStatus" class="status"></div>
-
-        <!-- Firmware Update -->
-        <h2>Firmware</h2>
-        <input id="file" type="file" accept=".bin,application/octet-stream">
-        <button onclick="uploadFirmware()">Upload &amp; Reboot</button>
-        <progress id="progress" value="0" max="100"></progress>
-        <div id="otaStatus" class="status"></div>
-
-        <!-- Account -->
-        <h2>Account</h2>
-        <label for="authUser">Username</label>
-        <input id="authUser" type="text" maxlength="31" autocomplete="off">
-        <label for="authPass">Password</label>
-        <input id="authPass" type="password" maxlength="63">
-        <button onclick="updateAuth()">Update Account</button>
-        <div id="authStatus" class="status"></div>
-
-        <!-- WiFi -->
-        <h2>WiFi</h2>
-        <label for="wifiSsid">SSID</label>
-        <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
-        <label for="wifiPass">Password</label>
-        <input id="wifiPass" type="password" maxlength="63">
-        <button class="btn-danger" onclick="updateWifi()">Save &amp; Reboot</button>
-        <div id="wifiStatus" class="status"></div>
     </div>
 
+    <div class="card">
+        <div class="card-label">감지 튜닝</div>
+        <div class="hint">진입: 윈도우 내 RSSI 조건 충족 관측이 N회 이상이면 재실</div>
+        <label>진입 윈도우 (ms)</label>
+        <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
+        <label>진입 최소 관측 수</label>
+        <input id="enterCount" type="number" min="1" max="10" value="3">
+        <label>진입 RSSI 임계값 (dBm)</label>
+        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
+        <div class="hint" style="margin-top:10px;">퇴실: 신호 없이 이 시간이 지나면 퇴실</div>
+        <label>퇴실 타임아웃 (ms)</label>
+        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
+        <button class="btn btn-blue" onclick="saveTuning()">저장</button>
+        <div id="tuningStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-label">블루투스 페어링</div>
+        <button id="pairBtn" class="btn btn-orange" onclick="togglePairing()">불러오는 중...</button>
+        <div id="pairStatus" class="status"></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title" style="color:#dc2626;">Danger Zone</div>
+
+        <div class="card" style="border-color:#fecaca;">
+            <div class="card-label">펌웨어 업데이트</div>
+            <input id="file" type="file" accept=".bin,application/octet-stream">
+            <button class="btn btn-red" onclick="uploadFirmware()">업로드 및 재부팅</button>
+            <progress id="progress" value="0" max="100"></progress>
+            <div id="otaStatus" class="status"></div>
+        </div>
+
+        <div class="card" style="border-color:#fecaca;">
+            <div class="card-label">계정</div>
+            <label>사용자명</label>
+            <input id="authUser" type="text" maxlength="31" autocomplete="off">
+            <label>비밀번호</label>
+            <input id="authPass" type="password" maxlength="63">
+            <button class="btn btn-red" onclick="updateAuth()">계정 변경</button>
+            <div id="authStatus" class="status"></div>
+        </div>
+
+        <div class="card" style="border-color:#fecaca;">
+            <div class="card-label">WiFi</div>
+            <label>SSID</label>
+            <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
+            <label>비밀번호</label>
+            <input id="wifiPass" type="password" maxlength="63">
+            <button class="btn btn-red" onclick="updateWifi()">저장 및 재부팅</button>
+            <div id="wifiStatus" class="status"></div>
+        </div>
+
+        <div class="card" style="border-color:#fecaca;">
+            <div class="card-label">재부팅</div>
+            <button class="btn btn-red" onclick="rebootDevice()">기기 재부팅</button>
+            <div id="rebootStatus" class="status"></div>
+        </div>
+    </div>
+</div>
+
 <script>
-/* ── Tab switching ── */
 function switchTab(name) {
     document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
     document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
     document.getElementById('tab-' + name).classList.add('active');
-    /* Find matching tab button by text content */
-    document.querySelectorAll('.tab').forEach(function(t) {
-        if (t.textContent.toLowerCase() === name.toLowerCase() ||
-            (name === 'dashboard' && t.textContent === 'Dashboard') ||
-            (name === 'settings' && t.textContent === 'Settings')) {
-            t.classList.add('active');
-        }
+    document.querySelectorAll('.tab').forEach(function(t, i) {
+        if ((i === 0 && name === 'dashboard') || (i === 1 && name === 'settings')) t.classList.add('active');
     });
 }
 
-/* ── Helpers ── */
 function show(id, msg, cls) {
     var el = document.getElementById(id);
     el.textContent = msg;
@@ -184,398 +305,228 @@ function show(id, msg, cls) {
 function post(url, body, statusId, okMsg, reboot) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url);
-    if (body !== null) {
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    }
+    if (body !== null) xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
-        if (xhr.status === 200) {
-            show(statusId, okMsg, 'ok');
-        } else {
-            show(statusId, 'Error: ' + xhr.responseText, 'err');
-        }
+        if (xhr.status === 200) show(statusId, okMsg, 'ok');
+        else show(statusId, 'Error: ' + xhr.responseText, 'err');
     };
     xhr.onerror = function() {
-        if (reboot) {
-            show(statusId, okMsg, 'ok');
-        } else {
-            show(statusId, 'Connection lost.', 'err');
-        }
+        show(statusId, reboot ? okMsg : '연결 끊김', reboot ? 'ok' : 'err');
     };
     xhr.send(body);
 }
 
-/* ── Actions ── */
 function openDoor() {
-    show('doorStatus', 'Sending...', 'run');
-    post('/api/door/open', null, 'doorStatus', 'Door opened!', false);
+    show('doorStatus', '전송 중...', 'run');
+    post('/api/door/open', null, 'doorStatus', '문이 열렸습니다', false);
 }
 
 function toggleAutoUnlock() {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/auto-unlock/toggle');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            var enabled = xhr.responseText === 'enabled';
-            var btn = document.getElementById('autoToggle');
-            btn.textContent = 'Auto-Unlock: ' + (enabled ? 'ON' : 'OFF');
-            btn.className = enabled ? 'btn-green' : 'btn-danger';
-        }
-    };
+    xhr.onload = function() { if (xhr.status === 200) setAutoBtn(xhr.responseText === 'enabled'); };
     xhr.send(null);
 }
-
+function setAutoBtn(on) {
+    var btn = document.getElementById('autoToggle');
+    btn.textContent = on ? 'ON' : 'OFF';
+    btn.className = 'pill ' + (on ? 'on' : 'off');
+}
 function loadAutoUnlockStatus() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/api/auto-unlock/status');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            var enabled = xhr.responseText === 'enabled';
-            var btn = document.getElementById('autoToggle');
-            btn.textContent = 'Auto-Unlock: ' + (enabled ? 'ON' : 'OFF');
-            btn.className = enabled ? 'btn-green' : 'btn-danger';
-        }
-    };
+    xhr.onload = function() { if (xhr.status === 200) setAutoBtn(xhr.responseText === 'enabled'); };
     xhr.send();
 }
 
 function togglePairing() {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/pairing/toggle');
-    xhr.onload = function() {
-        if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on');
-    };
+    xhr.onload = function() { if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on'); };
     xhr.send();
 }
-
 function updatePairingBtn(on) {
     var btn = document.getElementById('pairBtn');
-    btn.textContent = on ? 'Pairing: ON (tap to stop)' : 'Pairing: OFF (tap to start)';
-    btn.className = on ? 'btn-green' : 'btn-orange';
+    btn.textContent = on ? '페어링 중 (탭하여 중지)' : '페어링 시작';
+    btn.className = 'btn ' + (on ? 'btn-green' : 'btn-orange');
 }
-
 function loadPairingStatus() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/api/pairing/status');
-    xhr.onload = function() {
-        if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on');
-    };
+    xhr.onload = function() { if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on'); };
     xhr.send();
 }
 
 function uploadFirmware() {
     var file = document.getElementById('file').files[0];
-    if (!file) { show('otaStatus', 'Select a .bin file first.', 'err'); return; }
-
+    if (!file) { show('otaStatus', '.bin 파일을 선택하세요.', 'err'); return; }
     var bar = document.getElementById('progress');
-    bar.style.display = 'block';
-    bar.value = 0;
-    show('otaStatus', 'Uploading...', 'run');
-
+    bar.style.display = 'block'; bar.value = 0;
+    show('otaStatus', '업로드 중...', 'run');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/firmware/upload');
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) bar.value = Math.round(e.loaded / e.total * 100);
-    };
+    xhr.upload.onprogress = function(e) { if (e.lengthComputable) bar.value = Math.round(e.loaded / e.total * 100); };
     xhr.onload = function() {
-        if (xhr.status === 200) {
-            bar.value = 100;
-            show('otaStatus', 'Upload complete. Rebooting...', 'ok');
-        } else {
-            show('otaStatus', 'Failed: ' + xhr.responseText, 'err');
-            bar.style.display = 'none';
-        }
+        if (xhr.status === 200) { bar.value = 100; show('otaStatus', '업로드 완료. 재부팅 중...', 'ok'); }
+        else { show('otaStatus', '실패: ' + xhr.responseText, 'err'); bar.style.display = 'none'; }
     };
-    xhr.onerror = function() {
-        show('otaStatus', 'Connection lost. Device may be rebooting.', 'ok');
-    };
+    xhr.onerror = function() { show('otaStatus', '연결 끊김. 기기가 재부팅 중일 수 있습니다.', 'ok'); };
     xhr.send(file);
 }
 
 function updateAuth() {
     var user = document.getElementById('authUser').value.trim();
     var pass = document.getElementById('authPass').value;
-    if (!user || !pass) { show('authStatus', 'Both fields are required.', 'err'); return; }
-
-    show('authStatus', 'Saving...', 'run');
-    post('/api/auth/update',
-         'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass),
-         'authStatus',
-         'Account updated. Close this tab and reconnect to use new credentials.',
-         false);
+    if (!user || !pass) { show('authStatus', '모든 항목을 입력하세요.', 'err'); return; }
+    show('authStatus', '저장 중...', 'run');
+    post('/api/auth/update', 'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass), 'authStatus', '변경 완료. 탭을 닫고 새 인증으로 접속하세요.', false);
 }
 
 function updateWifi() {
     var ssid = document.getElementById('wifiSsid').value.trim();
     var pass = document.getElementById('wifiPass').value;
-    if (!ssid) { show('wifiStatus', 'SSID is required.', 'err'); return; }
-
-    show('wifiStatus', 'Saving...', 'run');
-    post('/api/wifi/update',
-         'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass),
-         'wifiStatus',
-         'Saved! Device is rebooting...',
-         true);
+    if (!ssid) { show('wifiStatus', 'SSID를 입력하세요.', 'err'); return; }
+    show('wifiStatus', '저장 중...', 'run');
+    post('/api/wifi/update', 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass), 'wifiStatus', '저장됨! 기기 재부팅 중...', true);
 }
 
-/* ── Fullscreen toggle ── */
+function rebootDevice() {
+    if (!confirm('기기를 재부팅할까요?')) return;
+    show('rebootStatus', '재부팅 중...', 'run');
+    post('/api/reboot', null, 'rebootStatus', '재부팅 중...', true);
+}
+
 function toggleFullscreen() {
-    var section = document.getElementById('logSection');
-    section.classList.toggle('fullscreen');
-    var btn = document.getElementById('fsBtn');
-    btn.textContent = section.classList.contains('fullscreen') ? '\u2715 Exit' : '\u26F6 Fullscreen';
+    var s = document.getElementById('logSection');
+    s.classList.toggle('fullscreen');
+    document.getElementById('fsBtn').textContent = s.classList.contains('fullscreen') ? '닫기' : '전체화면';
 }
-
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        var section = document.getElementById('logSection');
-        if (section.classList.contains('fullscreen')) toggleFullscreen();
-    }
+    if (e.key === 'Escape') { var s = document.getElementById('logSection'); if (s.classList.contains('fullscreen')) toggleFullscreen(); }
 });
 
-/* ── WebSocket Log Streaming with Tag Filter ── */
-var MAX_LOG_LINES = 500;
-var rawLogs = [];
-var autoFollow = true;
+var MAX_LOG_LINES = 500, rawLogs = [], autoFollow = true;
+document.getElementById('logArea').addEventListener('scroll', function() { autoFollow = (this.scrollHeight - this.scrollTop - this.clientHeight) < 50; });
+var knownTags = {}, allChecked = true, ws = null, tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
 
-/* 스크롤 위치로 자동 팔로 on/off. 맨 아래 근처면 팔로, 위로 올리면 정지. */
-document.getElementById('logArea').addEventListener('scroll', function() {
-    var el = this;
-    autoFollow = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
-});
-var knownTags = {};
-var allChecked = true;
-var ws = null;
-var tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
-
-function extractTag(line) {
-    var m = line.match(tagRegex);
-    return m ? m[1] : null;
-}
+function extractTag(line) { var m = line.match(tagRegex); return m ? m[1] : null; }
 
 function renderTagFilters() {
-    var container = document.getElementById('tagFilters');
-    var html = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
+    var c = document.getElementById('tagFilters');
+    var h = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
     var tags = Object.keys(knownTags).sort();
-    for (var i = 0; i < tags.length; i++) {
-        html += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
-    }
-    container.innerHTML = html;
+    for (var i = 0; i < tags.length; i++) h += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
+    c.innerHTML = h;
 }
-
 function toggleAllTags(checked) {
     allChecked = checked;
-    var tags = Object.keys(knownTags);
-    for (var i = 0; i < tags.length; i++) {
-        knownTags[tags[i]] = checked;
-    }
-    renderTagFilters();
-    renderFilteredLogs();
+    var t = Object.keys(knownTags); for (var i = 0; i < t.length; i++) knownTags[t[i]] = checked;
+    renderTagFilters(); renderFilteredLogs();
 }
-
 function onTagChange() {
-    var boxes = document.querySelectorAll('#tagFilters input[data-tag]');
-    var allOn = true;
-    for (var i = 0; i < boxes.length; i++) {
-        knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked;
-        if (!boxes[i].checked) allOn = false;
-    }
+    var boxes = document.querySelectorAll('#tagFilters input[data-tag]'), allOn = true;
+    for (var i = 0; i < boxes.length; i++) { knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked; if (!boxes[i].checked) allOn = false; }
     allChecked = allOn;
-    var allBox = document.getElementById('tagAll');
-    if (allBox) allBox.checked = allOn;
+    var a = document.getElementById('tagAll'); if (a) a.checked = allOn;
     renderFilteredLogs();
 }
-
 function renderFilteredLogs() {
-    var area = document.getElementById('logArea');
-    var textFilter = document.getElementById('textFilter').value.toLowerCase();
-    var filtered = [];
+    var area = document.getElementById('logArea'), tf = document.getElementById('textFilter').value.toLowerCase(), f = [];
     for (var i = 0; i < rawLogs.length; i++) {
         var tag = extractTag(rawLogs[i]);
         if (tag !== null && !knownTags[tag]) continue;
-        if (textFilter && rawLogs[i].toLowerCase().indexOf(textFilter) === -1) continue;
-        filtered.push(rawLogs[i]);
+        if (tf && rawLogs[i].toLowerCase().indexOf(tf) === -1) continue;
+        f.push(rawLogs[i]);
     }
-    area.textContent = filtered.join('\n');
-    /* 맨 아래 근처(50px 이내)일 때만 자동 스크롤. 위로 올렸으면 안 건드림. */
-    if (autoFollow) {
-        area.scrollTop = area.scrollHeight;
-    }
+    area.textContent = f.join('\n');
+    if (autoFollow) area.scrollTop = area.scrollHeight;
 }
 
 var wsToken = '';
-
 function wsConnect() {
     if (!wsToken) {
-        /* 토큰 미획득 → Basic Auth 뒤의 API로 먼저 획득 */
         var xhr = new XMLHttpRequest();
         xhr.open('GET', '/api/ws-token');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                wsToken = xhr.responseText;
-                wsConnect();  /* 토큰 획득 후 재시도 */
-            } else {
-                setTimeout(wsConnect, 3000);
-            }
-        };
+        xhr.onload = function() { if (xhr.status === 200) { wsToken = xhr.responseText; wsConnect(); } else setTimeout(wsConnect, 3000); };
         xhr.onerror = function() { setTimeout(wsConnect, 3000); };
-        xhr.send();
-        return;
+        xhr.send(); return;
     }
-
     var host = location.host || 'doorman.local';
-    var url = 'ws://' + host + '/ws?token=' + wsToken;
-    ws = new WebSocket(url);
-
-    ws.onopen = function() {
-        document.getElementById('wsDot').className = 'dot dot-ok';
-        document.getElementById('wsLabel').textContent = 'Connected';
-    };
-
+    ws = new WebSocket('ws://' + host + '/ws?token=' + wsToken);
+    ws.onopen = function() { document.getElementById('wsDot').className = 'ws-dot dot-ok'; document.getElementById('wsLabel').textContent = '연결됨'; };
     ws.onmessage = function(evt) {
-        var newLines = evt.data.split('\n');
-        var needFilterUpdate = false;
-
-        for (var i = 0; i < newLines.length; i++) {
-            var line = newLines[i];
-            if (line === '' && i === newLines.length - 1) continue;  /* trailing newline */
-            rawLogs.push(line);
-
-            var tag = extractTag(line);
-            if (tag && !(tag in knownTags)) {
-                knownTags[tag] = true;
-                needFilterUpdate = true;
-            }
+        var lines = evt.data.split('\n'), upd = false;
+        for (var i = 0; i < lines.length; i++) {
+            var l = lines[i]; if (l === '' && i === lines.length - 1) continue;
+            rawLogs.push(l);
+            var tag = extractTag(l); if (tag && !(tag in knownTags)) { knownTags[tag] = true; upd = true; }
         }
-
-        /* Trim to MAX_LOG_LINES */
-        if (rawLogs.length > MAX_LOG_LINES) {
-            rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
-        }
-
-        if (needFilterUpdate) renderTagFilters();
-        renderFilteredLogs();
+        if (rawLogs.length > MAX_LOG_LINES) rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
+        if (upd) renderTagFilters(); renderFilteredLogs();
     };
-
-    ws.onclose = function() {
-        document.getElementById('wsDot').className = 'dot dot-err';
-        document.getElementById('wsLabel').textContent = 'Disconnected. Reconnecting...';
-        setTimeout(wsConnect, 3000);
-    };
-
-    ws.onerror = function() {
-        document.getElementById('wsDot').className = 'dot dot-err';
-        document.getElementById('wsLabel').textContent = 'Error';
-        ws.close();
-    };
+    ws.onclose = function() { document.getElementById('wsDot').className = 'ws-dot dot-err'; document.getElementById('wsLabel').textContent = '연결 끊김. 재연결 중...'; setTimeout(wsConnect, 3000); };
+    ws.onerror = function() { document.getElementById('wsDot').className = 'ws-dot dot-err'; document.getElementById('wsLabel').textContent = '오류'; ws.close(); };
 }
-
 wsConnect();
 
-/* ── Load tuning params ── */
 function loadTuning() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/api/tuning');
     xhr.onload = function() {
         if (xhr.status === 200) {
-            var parts = xhr.responseText.split(',');
-            document.getElementById('rssiThresh').value = parts[0];
-            document.getElementById('presTimeout').value = parts[1];
-            if (parts.length > 2) document.getElementById('enterWindow').value = parts[2];
-            if (parts.length > 3) document.getElementById('enterCount').value = parts[3];
+            var p = xhr.responseText.split(',');
+            document.getElementById('rssiThresh').value = p[0];
+            document.getElementById('presTimeout').value = p[1];
+            if (p.length > 2) document.getElementById('enterWindow').value = p[2];
+            if (p.length > 3) document.getElementById('enterCount').value = p[3];
         }
     };
     xhr.send();
 }
-
 function saveTuning() {
-    var rssi = document.getElementById('rssiThresh').value;
-    var timeout = document.getElementById('presTimeout').value;
-    var enterWindow = document.getElementById('enterWindow').value;
-    var enterCount = document.getElementById('enterCount').value;
-    show('tuningStatus', 'Saving...', 'run');
-    post('/api/tuning',
-         'rssi=' + rssi + '&timeout=' + timeout + '&enter_window=' + enterWindow + '&enter_count=' + enterCount,
-         'tuningStatus', 'Saved!', false);
+    show('tuningStatus', '저장 중...', 'run');
+    post('/api/tuning', 'rssi=' + document.getElementById('rssiThresh').value + '&timeout=' + document.getElementById('presTimeout').value + '&enter_window=' + document.getElementById('enterWindow').value + '&enter_count=' + document.getElementById('enterCount').value, 'tuningStatus', '저장됨!', false);
 }
 
-/* ── Bonded Devices ── */
 function loadDevices() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/api/devices');
     xhr.onload = function() {
-        var container = document.getElementById('deviceList');
-        if (xhr.status !== 200) {
-            container.textContent = 'Error loading devices';
-            return;
-        }
-        var text = xhr.responseText.trim();
-        if (!text) {
-            container.textContent = 'No bonded devices';
-            return;
-        }
-        var macs = text.split('\n');
-        container.innerHTML = '';
+        var c = document.getElementById('deviceList');
+        if (xhr.status !== 200) { c.textContent = '기기 목록 로드 실패'; return; }
+        var t = xhr.responseText.trim();
+        if (!t) { c.innerHTML = ''; return; }
+        var macs = t.split('\n'); c.innerHTML = '';
         for (var i = 0; i < macs.length; i++) {
-            var mac = macs[i].trim();
-            if (!mac) continue;
-            var div = document.createElement('div');
-            div.className = 'device-item';
-            var span = document.createElement('span');
-            span.textContent = mac;
-            var btn = document.createElement('button');
-            btn.textContent = 'Delete';
-            btn.className = 'btn-danger';
-            btn.setAttribute('data-mac', mac);
-            btn.onclick = function() {
-                var m = this.getAttribute('data-mac');
-                deleteDevice(m);
-            };
-            div.appendChild(span);
-            div.appendChild(btn);
-            container.appendChild(div);
+            var mac = macs[i].trim(); if (!mac) continue;
+            var d = document.createElement('div'); d.className = 'dev-row';
+            var s = document.createElement('span'); s.textContent = mac;
+            var b = document.createElement('button'); b.textContent = '삭제'; b.className = 'btn-red'; b.setAttribute('data-mac', mac);
+            b.onclick = function() { deleteDevice(this.getAttribute('data-mac')); };
+            d.appendChild(s); d.appendChild(b); c.appendChild(d);
         }
     };
-    xhr.onerror = function() {
-        document.getElementById('deviceList').textContent = 'Connection error';
-    };
+    xhr.onerror = function() { document.getElementById('deviceList').textContent = '연결 오류'; };
     xhr.send();
 }
-
 function deleteDevice(mac) {
     if (!confirm(mac + ' 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.')) return;
-    show('deviceStatus', 'Deleting ' + mac + '...', 'run');
+    show('deviceStatus', mac + ' 삭제 중...', 'run');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/devices/delete');
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            show('deviceStatus', 'Deleted ' + mac, 'ok');
-            setTimeout(loadDevices, 500);
-        } else {
-            show('deviceStatus', 'Error: ' + xhr.responseText, 'err');
-        }
-    };
-    xhr.onerror = function() {
-        show('deviceStatus', 'Connection lost.', 'err');
-    };
+    xhr.onload = function() { if (xhr.status === 200) { show('deviceStatus', mac + ' 삭제됨', 'ok'); setTimeout(loadDevices, 500); } else show('deviceStatus', '오류: ' + xhr.responseText, 'err'); };
+    xhr.onerror = function() { show('deviceStatus', '연결 끊김', 'err'); };
     xhr.send('mac=' + mac);
 }
 
-loadTuning();
-loadAutoUnlockStatus();
-loadDevices();
-loadPairingStatus();
+loadTuning(); loadAutoUnlockStatus(); loadDevices(); loadPairingStatus();
 
-/* ── Build info ── */
 (function() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/api/build-info');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            document.getElementById('buildInfo').textContent = 'Build: ' + xhr.responseText;
-        }
-    };
+    xhr.onload = function() { if (xhr.status === 200) document.getElementById('buildInfo').textContent = xhr.responseText; };
     xhr.send();
 })();
 </script>
