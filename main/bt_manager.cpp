@@ -6,6 +6,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "aes/esp_aes.h"
 #include "esp_bt.h"
@@ -373,11 +374,17 @@ void refresh_ble_bond_cache() {
         dev_num = kMaxBleBondedDevices;
     }
 
-    esp_ble_bond_dev_t dev_list[kMaxBleBondedDevices] = {};
+    /* esp_ble_bond_dev_t가 개당 수백 바이트이므로 힙 할당 (스택 오버플로우 방지) */
+    auto *dev_list = new (std::nothrow) esp_ble_bond_dev_t[dev_num]();
+    if (dev_list == nullptr) {
+        ESP_LOGE(kTag, "Failed to allocate BLE bond list");
+        return;
+    }
     if (dev_num > 0) {
         esp_err_t err = esp_ble_get_bond_device_list(&dev_num, dev_list);
         if (err != ESP_OK) {
             ESP_LOGE(kTag, "Failed to get BLE bond list: %s", esp_err_to_name(err));
+            delete[] dev_list;
             return;
         }
     }
@@ -402,6 +409,8 @@ void refresh_ble_bond_cache() {
         }
     }
     taskEXIT_CRITICAL(&s_state_lock);
+
+    delete[] dev_list;
 
     ESP_LOGI(kTag, "BLE bonded peers: %d", dev_num);
     for (int i = 0; i < dev_num; ++i) {
@@ -648,29 +657,35 @@ void maybe_start_classic_probe() {
         return;
     }
 
-    ClassicPeer peers[kMaxClassicBondedDevices] = {};
-    int peer_count = 0;
+    /**
+     * ClassicPeer[15]를 통째로 스택에 올리면 ~4KB를 먹으므로,
+     * 크리티컬 섹션 안에서 probe 대상 하나의 bda만 복사한다.
+     */
+    esp_bd_addr_t target_bda = {};
+    bool found = false;
 
     taskENTER_CRITICAL(&s_state_lock);
-    peer_count = s_classic_peer_count;
+    int peer_count = s_classic_peer_count;
     if (peer_count > kMaxClassicBondedDevices) {
         peer_count = kMaxClassicBondedDevices;
     }
-    std::memcpy(peers, s_classic_peers, sizeof(peers));
+    if (peer_count > 0) {
+        int index = s_next_classic_probe_index.fetch_add(1);
+        if (index < 0) {
+            index = 0;
+            s_next_classic_probe_index.store(1);
+        }
+        index %= peer_count;
+        std::memcpy(target_bda, s_classic_peers[index].bda, sizeof(esp_bd_addr_t));
+        found = true;
+    }
     taskEXIT_CRITICAL(&s_state_lock);
 
-    if (peer_count <= 0) {
+    if (!found) {
         return;
     }
 
-    int index = s_next_classic_probe_index.fetch_add(1);
-    if (index < 0) {
-        index = 0;
-        s_next_classic_probe_index.store(1);
-    }
-    index %= peer_count;
-
-    esp_err_t err = esp_bt_gap_read_remote_name(peers[index].bda);
+    esp_err_t err = esp_bt_gap_read_remote_name(target_bda);
     if (err == ESP_OK) {
         s_classic_probe_in_flight.store(true);
     } else {
@@ -721,8 +736,10 @@ void presence_task(void *) {
                 bool ble_removed = false;
                 {
                     int dev_num = kMaxBleBondedDevices;
-                    esp_ble_bond_dev_t dev_list[kMaxBleBondedDevices] = {};
-                    if (esp_ble_get_bond_device_list(&dev_num, dev_list) == ESP_OK) {
+                    /* esp_ble_bond_dev_t가 개당 수백 바이트이므로 힙 할당 */
+                    auto *dev_list = new (std::nothrow) esp_ble_bond_dev_t[dev_num];
+                    if (dev_list != nullptr &&
+                        esp_ble_get_bond_device_list(&dev_num, dev_list) == ESP_OK) {
                         for (int i = 0; i < dev_num; ++i) {
                             /* identity address가 일치하는 bond 찾기 */
                             esp_bd_addr_t id_addr = {};
@@ -741,6 +758,7 @@ void presence_task(void *) {
                             }
                         }
                     }
+                    delete[] dev_list;
                 }
                 if (!ble_removed) {
                     /* identity == bd_addr인 경우 직접 시도 */
@@ -823,6 +841,10 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         s_classic_probe_in_flight.store(false);
         if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
             update_classic_presence(param->read_rmt_name.bda, param->read_rmt_name.rmt_name);
+
+            char addr_str2[18] = {};
+            ESP_LOGI(kTag, "Classic %s",
+                     bda_to_str(param->read_rmt_name.bda, addr_str2, sizeof(addr_str2)));
 
             /* 페어링 중에는 SM feed를 억제 */
             if (!s_pairing_mode.load()) {
@@ -1151,7 +1173,7 @@ esp_err_t bt_manager_start() {
     BaseType_t task_ok = xTaskCreatePinnedToCore(
         presence_task,
         "bt_mgr",
-        6144,
+        8192,
         nullptr,
         5,
         &s_presence_task_handle,
