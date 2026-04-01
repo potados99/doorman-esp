@@ -14,9 +14,29 @@ Bluetooth 듀얼모드(BLE + Classic)로 본딩된 기기의 존재를 감지합
 
 SM Task는 StateMachine의 Unlock 판정을 받되, 3중 억제 체계로 실제 전달을 결정합니다.
 
-1. **시작 유예기간** (15초): 재부팅 직후 기존 기기 flood 방지
+1. **시작 유예기간** (30초): 재부팅 직후 기존 기기 flood 방지
 2. **auto_unlock OFF**: 사용자가 명시적으로 꺼놓은 상태
 3. **페어링 중**: 새 기기 bond 도중 문열림 방지
+
+### BLE RPA resolve 최적화
+
+BLE 환경에서는 주변의 모든 기기(에어팟, 아이워치, BLE 마우스 등)가 advertising을 보내고, 매 광고마다 본딩된 기기인지 식별해야 합니다. iPhone은 RPA(Resolvable Private Address)를 사용하므로 식별에 IRK 기반 AES 연산이 필요합니다.
+
+모든 광고에 대해 bonded peer 수만큼 AES resolve를 시도하면 Bluedroid 태스크가 밀려 등록된 기기의 감지가 느려집니다. 이를 2단계 캐시로 해결합니다.
+
+1. **Positive 패스트패스** (`last_adv_addr`): 매칭 성공 시 현재 RPA를 기억. 이후 같은 RPA 광고는 memcmp로 즉시 매칭 (AES 0회).
+2. **Negative 캐시** (32슬롯, 순환): AES resolve 실패한 주소를 기억. 같은 주소가 다시 오면 즉시 스킵 (AES 0회).
+
+RPA는 ~15분마다 바뀌므로 캐시는 자연스럽게 갱신됩니다. 결과적으로 **첫 1회만 AES를 타고, 이후 ~15분간은 memcmp만으로 처리**됩니다.
+
+### 세이프 모드
+
+연속 3회 이상 panic reset이 발생하면 세이프 모드로 진입합니다. WiFi와 HTTP 서버(OTA 포함)만 올리고 BT/SM/Control 태스크는 시작하지 않습니다.
+
+- NVS `sys/panic_cnt` 카운터로 연속 panic 횟수 추적
+- 정상 부팅 후 60초 경과 시 카운터 자동 리셋
+- 웹 UI에 세이프 모드 배너 표시, BT 관련 기능 비활성화
+- 펌웨어 업데이트 또는 문제 기기 삭제 후 재부팅으로 복구
 
 억제를 통과한 Unlock은 Control Task 큐로 전달되고, GPIO 4에 500ms HIGH 펄스를 보내 릴레이를 구동합니다.
 

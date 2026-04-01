@@ -562,6 +562,32 @@ void close_pairing_window() {
 // ── Presence 갱신 (감지 이벤트 → SM Task 전달) ──
 
 /**
+ * 비등록 주소 네거티브 캐시.
+ *
+ * AES resolve까지 돌렸는데 매칭 안 된 주소를 기억해서,
+ * 같은 주소가 다시 오면 AES 없이 즉시 스킵한다.
+ * RPA가 바뀌면 자연스럽게 캐시 미스 → 새로 resolve 시도.
+ * Bluedroid 콜백은 단일 태스크이므로 lock 불필요.
+ */
+static constexpr int kNegCacheSize = 32;
+static esp_bd_addr_t s_neg_cache[kNegCacheSize] = {};
+static int s_neg_cache_idx = 0;
+
+static bool neg_cache_contains(const uint8_t *bda) {
+    for (int i = 0; i < kNegCacheSize; ++i) {
+        if (std::memcmp(bda, s_neg_cache[i], ESP_BD_ADDR_LEN) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void neg_cache_add(const uint8_t *bda) {
+    std::memcpy(s_neg_cache[s_neg_cache_idx], bda, ESP_BD_ADDR_LEN);
+    s_neg_cache_idx = (s_neg_cache_idx + 1) % kNegCacheSize;
+}
+
+/**
  * BLE 스캔 결과에서 본딩된 기기를 식별하고 SM Task에 피드한다.
  *
  * RPA resolve 성공 = 감지됨 → sm_feed_queue_send(mac, true, now_ms)
@@ -569,6 +595,10 @@ void close_pairing_window() {
  * StateMachine이 기기를 일관되게 추적할 수 있도록 한다.
  */
 void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param &scan_rst) {
+    /* 네거티브 캐시 히트 → AES resolve 전에 즉시 리턴 */
+    if (neg_cache_contains(scan_rst.bda)) {
+        return;
+    }
     /*
      * 크리티컬 섹션 안에서 resolve_rpa_with_irk()를 호출하면
      * 하드웨어 AES가 내부적으로 mutex를 잡아 데드락이 발생할 수 있다.
@@ -587,21 +617,44 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
     taskEXIT_CRITICAL(&s_state_lock);
 
     int matched_index = -1;
+
+    /**
+     * 패스트패스: 마지막으로 본 광고 주소(last_adv_addr)와 memcmp.
+     * RPA는 ~15분마다 바뀌므로 대부분의 관측은 AES 없이 여기서 매칭된다.
+     * 비등록 기기 광고가 많은 환경에서 AES 부하를 대폭 줄인다.
+     */
     for (int i = 0; i < peer_count; ++i) {
         if (!peers_snap[i].valid) continue;
-
-        bool matched = std::memcmp(scan_rst.bda, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
-        if (!matched && peers_snap[i].has_identity_key) {
-            matched = resolve_rpa_with_irk(scan_rst.bda, peers_snap[i].irk);
-        }
-
-        if (matched) {
+        if (std::memcmp(scan_rst.bda, peers_snap[i].last_adv_addr, ESP_BD_ADDR_LEN) == 0) {
             matched_index = i;
             break;
         }
     }
 
-    if (matched_index >= 0) {
+    /* 패스트패스 실패 시 identity address 직접 비교 + IRK resolve 폴백 */
+    if (matched_index < 0) {
+        for (int i = 0; i < peer_count; ++i) {
+            if (!peers_snap[i].valid) continue;
+
+            bool matched = std::memcmp(scan_rst.bda, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
+            if (!matched && peers_snap[i].has_identity_key) {
+                matched = resolve_rpa_with_irk(scan_rst.bda, peers_snap[i].irk);
+            }
+
+            if (matched) {
+                matched_index = i;
+                break;
+            }
+        }
+    }
+
+    if (matched_index < 0) {
+        /* 전체 resolve 실패 → 네거티브 캐시에 등록 (다음에 AES 스킵) */
+        neg_cache_add(scan_rst.bda);
+        return;
+    }
+
+    {
         /* 매칭 성공 시 크리티컬 섹션으로 돌아가서 상태 업데이트 */
         taskENTER_CRITICAL(&s_state_lock);
         if (matched_index < s_ble_peer_count && s_ble_peers[matched_index].valid) {

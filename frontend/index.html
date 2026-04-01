@@ -239,16 +239,16 @@
 
     <div class="card">
         <div class="card-label">감지 튜닝</div>
-        <div class="hint">진입: 윈도우 내 RSSI 조건 충족 관측이 N회 이상이면 재실</div>
         <label>진입 윈도우 (ms)</label>
         <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
         <label>진입 최소 관측 수</label>
         <input id="enterCount" type="number" min="1" max="10" value="3">
         <label>진입 RSSI 임계값 (dBm)</label>
         <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
-        <div class="hint" style="margin-top:10px;">퇴실: 신호 없이 이 시간이 지나면 퇴실</div>
+        <div class="hint" style="margin-top:8px;">윈도우 내 RSSI 조건을 충족하는 관측이 N회 이상이면 재실로 판정합니다.</div>
         <label>퇴실 타임아웃 (ms)</label>
         <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
+        <div class="hint" style="margin-top:8px;">신호 없이 이 시간이 지나면 퇴실로 전환됩니다.</div>
         <button class="btn btn-blue" onclick="saveTuning()">저장</button>
         <div id="tuningStatus" class="status"></div>
     </div>
