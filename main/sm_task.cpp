@@ -49,7 +49,7 @@ static QueueHandle_t s_queue = nullptr;
  * Unlock만 Control Task에 안 보낸다. SM 내부적으로 last_unlock_ms가
  * 세팅되므로, 유예 후에는 이미 "처리 완료" 상태.
  */
-static constexpr uint32_t kStartupGraceMs = 15000;
+static constexpr uint32_t kStartupGraceMs = 30000;
 
 static void sm_task(void *arg) {
     auto *cfg = static_cast<AppConfig *>(arg);
