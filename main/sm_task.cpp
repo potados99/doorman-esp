@@ -2,6 +2,7 @@
 #include "bt_manager.h"
 #include "config_service.h"
 #include "control_task.h"
+#include "device_config_service.h"
 #include "statemachine.h"
 
 #include <cstring>
@@ -10,20 +11,31 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 
 static const char *TAG = "sm";
 
 /**
- * 큐로 전달되는 피드 메시지.
- * BT Manager → SM Task로 감지 이벤트를 넘기기 위한 POD 구조체.
+ * 큐 메시지 타입.
  */
-struct FeedMsg {
-    uint8_t mac[6];
-    bool seen;
-    uint32_t now_ms;
-    int8_t rssi;  // BLE RSSI (dBm). 0이면 Classic (RSSI 필터링 건너뜀).
+enum class SmMsgType { Feed, RemoveDevice, CreateConfig };
+
+/**
+ * 큐로 전달되는 메시지.
+ * Feed: BT Manager → SM Task 감지 이벤트.
+ * RemoveDevice: 슬롯 제거 요청.
+ * CreateConfig: 기기별 config 생성 요청 (NVS 저장 → SM 반영).
+ */
+struct SmMsg {
+    SmMsgType type;
+    union {
+        struct { uint8_t mac[6]; bool seen; uint32_t now_ms; int8_t rssi; } feed;
+        struct { uint8_t mac[6]; } remove;
+        struct { uint8_t mac[6]; char alias[32]; } create_config;
+    };
 };
+static_assert(sizeof(SmMsg) <= 48, "SmMsg too large for queue");
 
 /**
  * 큐 깊이 16: BLE 스캔은 짧은 시간에 여러 advertising을 수신할 수 있으므로
@@ -42,6 +54,11 @@ static constexpr int kTickIntervalMs = 2000;
 
 static QueueHandle_t s_queue = nullptr;
 
+/** 스냅샷 보호 mutex 및 버퍼. */
+static SemaphoreHandle_t s_snapshot_mutex = nullptr;
+static DeviceState       s_snapshots[30]  = {};
+static int               s_snapshot_count = 0;
+
 /**
  * 시작 후 유예기간 (밀리초).
  * 재부팅 직후 이미 근처에 있는 기기들이 "최초 감지 → Unlock"으로
@@ -58,22 +75,61 @@ static void sm_task(void *arg) {
 
     uint32_t start_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
-    ESP_LOGI(TAG, "StateMachine initialized (timeout=%lums, grace=%lums)",
-             (unsigned long)sm.config().presence_timeout_ms,
-             (unsigned long)kStartupGraceMs);
+    ESP_LOGI(TAG, "StateMachine initialized (grace=%lums)", (unsigned long)kStartupGraceMs);
 
-    FeedMsg msg;
+    // ── 시작 시퀀스: NVS 기기별 config 전부 로드 → SM에 push ──
+    {
+        uint8_t macs[15][6];
+        DeviceConfig cfgs[15];
+        int n = device_config_get_all(macs, cfgs, 15);
+        for (int i = 0; i < n; i++) {
+            sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
+        }
+        ESP_LOGI(TAG, "Loaded %d device config(s) into SM", n);
+    }
+
+    SmMsg msg;
     while (true) {
-        BaseType_t got = xQueueReceive(s_queue, &msg, pdMS_TO_TICKS(kTickIntervalMs));
+        sm.update_config(app_config_get());   // 전역 설정 (auto_unlock 등)
 
-        sm.update_config(app_config_get());
+        // per-device config 변경 감지 (atomic flag)
+        if (device_config_changed()) {
+            uint8_t macs[15][6];
+            DeviceConfig cfgs[15];
+            int n = device_config_get_all(macs, cfgs, 15);
+            for (int i = 0; i < n; i++) {
+                sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
+            }
+            ESP_LOGI(TAG, "Device configs reloaded (%d)", n);
+        }
 
-        if (got == pdTRUE) {
-            sm.feed(msg.mac, msg.seen, msg.now_ms, msg.rssi);
+        // 큐 drain: tick당 최대 16개 dequeue
+        int drained = 0;
+        while (xQueueReceive(s_queue, &msg, drained == 0 ? pdMS_TO_TICKS(kTickIntervalMs) : 0) == pdTRUE) {
+            switch (msg.type) {
+            case SmMsgType::Feed:
+                sm.feed(msg.feed.mac, msg.feed.seen, msg.feed.now_ms, msg.feed.rssi);
+                break;
+            case SmMsgType::RemoveDevice:
+                sm.remove_device(msg.remove.mac);
+                break;
+            case SmMsgType::CreateConfig: {
+                DeviceConfig dev_cfg = {};
+                snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
+                device_config_set(reinterpret_cast<const uint8_t(&)[6]>(msg.create_config.mac), dev_cfg);
+                break;
+            }
+            }
+            if (++drained >= 16) break;
         }
 
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         Action action = sm.tick(now_ms);
+
+        // 스냅샷 갱신: 전역 배열에 직접 dump
+        xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
+        s_snapshot_count = sm.dump_states(s_snapshots, 30);
+        xSemaphoreGive(s_snapshot_mutex);
 
         /**
          * Unlock 억제 — SM은 항상 드라이런 판정. 여기서만 실제 전달 결정.
@@ -100,8 +156,11 @@ static void sm_task(void *arg) {
 }
 
 void sm_task_start(AppConfig cfg) {
-    s_queue = xQueueCreate(kQueueDepth, sizeof(FeedMsg));
+    s_queue = xQueueCreate(kQueueDepth, sizeof(SmMsg));
     configASSERT(s_queue);
+
+    s_snapshot_mutex = xSemaphoreCreateMutex();
+    configASSERT(s_snapshot_mutex);
 
     /**
      * cfg를 힙에 복사하여 태스크에 전달.
@@ -125,17 +184,57 @@ void sm_task_start(AppConfig cfg) {
 
 void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi) {
     if (s_queue == nullptr) {
-        ESP_LOGE(TAG, "SM feed queue not initialized");
+        ESP_LOGE(TAG, "SM queue not initialized");
         return;
     }
 
-    FeedMsg msg = {};
-    std::memcpy(msg.mac, mac, 6);
-    msg.seen = seen;
-    msg.now_ms = now_ms;
-    msg.rssi = rssi;
+    SmMsg msg = {};
+    msg.type = SmMsgType::Feed;
+    std::memcpy(msg.feed.mac, mac, 6);
+    msg.feed.seen = seen;
+    msg.feed.now_ms = now_ms;
+    msg.feed.rssi = rssi;
 
     if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "SM feed queue full — event dropped");
+        ESP_LOGW(TAG, "SM queue full — feed event dropped");
     }
+}
+
+void sm_remove_device_queue_send(const uint8_t (&mac)[6]) {
+    if (s_queue == nullptr) {
+        ESP_LOGE(TAG, "SM queue not initialized");
+        return;
+    }
+
+    SmMsg msg = {};
+    msg.type = SmMsgType::RemoveDevice;
+    std::memcpy(msg.remove.mac, mac, 6);
+
+    if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "SM queue full — remove_device event dropped");
+    }
+}
+
+void sm_create_config_queue_send(const uint8_t (&mac)[6], const char *alias) {
+    if (s_queue == nullptr) {
+        ESP_LOGE(TAG, "SM queue not initialized");
+        return;
+    }
+
+    SmMsg msg = {};
+    msg.type = SmMsgType::CreateConfig;
+    std::memcpy(msg.create_config.mac, mac, 6);
+    snprintf(msg.create_config.alias, sizeof(msg.create_config.alias), "%s", alias);
+
+    if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "SM queue full — create_config event dropped");
+    }
+}
+
+int sm_get_snapshots(DeviceState *out, int max) {
+    xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
+    int n = s_snapshot_count < max ? s_snapshot_count : max;
+    memcpy(out, s_snapshots, n * sizeof(DeviceState));
+    xSemaphoreGive(s_snapshot_mutex);
+    return n;
 }

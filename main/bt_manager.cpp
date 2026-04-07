@@ -314,7 +314,7 @@ char *bda_to_str(const uint8_t *bda, char *str, size_t size) {
     if (bda == nullptr || str == nullptr || size < 18) {
         return nullptr;
     }
-    std::snprintf(str, size, "%02x:%02x:%02x:%02x:%02x:%02x",
+    std::snprintf(str, size, "%02X:%02X:%02X:%02X:%02X:%02X",
                   bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
     return str;
 }
@@ -674,7 +674,7 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
          * Unlock 억제는 SM Task에서 일괄 처리 (유예기간/auto_unlock/페어링 상태). */
         char identity_str[18] = {};
         bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
-        ESP_LOGI(kTag, "BLE %s RSSI=%d", identity_str, scan_rst.rssi);
+        ESP_LOGI(kTag, "%s rssi=%d", identity_str, scan_rst.rssi);
 
         uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
@@ -866,10 +866,14 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
     switch (event) {
     case ESP_BT_GAP_AUTH_CMPL_EVT:
         if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI(kTag, "Classic auth success: %s [%s]",
-                     reinterpret_cast<const char *>(param->auth_cmpl.device_name),
-                     bda_to_str(param->auth_cmpl.bda, addr_str, sizeof(addr_str)));
+            bda_to_str(param->auth_cmpl.bda, addr_str, sizeof(addr_str));
+            ESP_LOGI(kTag, "%s paired %s", addr_str,
+                     reinterpret_cast<const char *>(param->auth_cmpl.device_name));
             refresh_classic_bond_cache();
+            // SM 큐로 config 생성 요청 (BTU 블로킹 방지)
+            sm_create_config_queue_send(
+                reinterpret_cast<const uint8_t(&)[6]>(*param->auth_cmpl.bda),
+                reinterpret_cast<const char *>(param->auth_cmpl.device_name));
         } else {
             ESP_LOGE(kTag, "Classic auth failed: status=%d", param->auth_cmpl.stat);
         }
@@ -902,7 +906,7 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             update_classic_presence(param->read_rmt_name.bda, param->read_rmt_name.rmt_name);
 
             char addr_str2[18] = {};
-            ESP_LOGI(kTag, "Classic %s",
+            ESP_LOGI(kTag, "%s rssi=0",
                      bda_to_str(param->read_rmt_name.bda, addr_str2, sizeof(addr_str2)));
 
             /* 페어링 중에는 SM feed를 억제 */
@@ -1063,11 +1067,17 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
 
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
         char addr_str[18] = {};
+        bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
         ESP_LOGI(kTag, "BLE auth complete: success=%s addr=%s addr_type=%u",
                  param->ble_security.auth_cmpl.success ? "yes" : "no",
-                 bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str)),
+                 addr_str,
                  param->ble_security.auth_cmpl.addr_type);
-        if (!param->ble_security.auth_cmpl.success) {
+        if (param->ble_security.auth_cmpl.success) {
+            // BLE는 device_name 미제공, alias 빈 문자열
+            sm_create_config_queue_send(
+                reinterpret_cast<const uint8_t(&)[6]>(*param->ble_security.auth_cmpl.bd_addr),
+                "");
+        } else {
             ESP_LOGI(kTag, "BLE pairing failed, reason=0x%x", param->ble_security.auth_cmpl.fail_reason);
         }
         refresh_ble_bond_cache();

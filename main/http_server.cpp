@@ -2,8 +2,10 @@
 #include "bt_manager.h"
 #include "config_service.h"
 #include "control_task.h"
+#include "device_config_service.h"
 #include "door_control.h"
 #include "nvs_config.h"
+#include "sm_task.h"
 
 #include <algorithm>
 #include <atomic>
@@ -492,83 +494,59 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
 }
 
-/** 튜닝 파라미터 조회: rssi_threshold, presence_timeout_ms, enter_window_ms, enter_min_count */
-static esp_err_t tuning_get_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
-
-    AppConfig cfg = app_config_get();
-    char buf[96];
-    snprintf(buf, sizeof(buf), "%d,%lu,%lu,%lu",
-             cfg.rssi_threshold,
-             (unsigned long)cfg.presence_timeout_ms,
-             (unsigned long)cfg.enter_window_ms,
-             (unsigned long)cfg.enter_min_count);
-    return send_text(req, "200 OK", buf);
-}
-
-/** 튜닝 파라미터 변경: rssi=N&timeout=N&enter_window=N&enter_count=N (form-urlencoded) */
-static esp_err_t tuning_set_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
-
-    char body[256];
-    if (read_body(req, body, sizeof(body)) < 0) {
-        return send_text(req, "400 Bad Request", "Invalid request");
-    }
-
-    AppConfig cfg = app_config_get();
-
-    char val[16] = {};
-    if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
-        cfg.rssi_threshold = (int8_t)atoi(val);
-    }
-    if (httpd_query_key_value(body, "timeout", val, sizeof(val)) == ESP_OK) {
-        cfg.presence_timeout_ms = (uint32_t)atoi(val);
-    }
-    if (httpd_query_key_value(body, "enter_window", val, sizeof(val)) == ESP_OK) {
-        cfg.enter_window_ms = (uint32_t)atoi(val);
-    }
-    if (httpd_query_key_value(body, "enter_count", val, sizeof(val)) == ESP_OK) {
-        cfg.enter_min_count = (uint32_t)atoi(val);
-    }
-
-    if (!validate(cfg)) {
-        return send_text(req, "400 Bad Request", "Invalid values");
-    }
-
-    app_config_set(cfg);
-
-    char buf[96];
-    snprintf(buf, sizeof(buf), "%d,%lu,%lu,%lu",
-             cfg.rssi_threshold,
-             (unsigned long)cfg.presence_timeout_ms,
-             (unsigned long)cfg.enter_window_ms,
-             (unsigned long)cfg.enter_min_count);
-    /* config_service가 NVS 저장 시 로그를 찍으므로 여기서는 생략 */
-    return send_text(req, "200 OK", buf);
-}
-
 /**
- * 본딩된 기기 목록 조회.
- * bt_manager의 peer 캐시에서 identity address를 가져온다.
- * esp_ble_get_bond_device_list()의 bd_addr는 본딩 시 사용된 주소(RPA)일 수 있어서
- * 실제 identity address와 다를 수 있으므로, peer 캐시가 정확하다.
+ * 본딩된 기기 목록 + 기기별 config + SM 스냅샷을 JSON으로 반환.
+ * snprintf + chunked 전송, 힙 할당 없음.
  */
-static esp_err_t devices_list_handler(httpd_req_t *req) {
+static DeviceState *find_snapshot(DeviceState *snaps, int count, const uint8_t *mac) {
+    for (int i = 0; i < count; i++)
+        if (memcmp(snaps[i].mac, mac, 6) == 0) return &snaps[i];
+    return nullptr;
+}
+
+static esp_err_t devices_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    uint8_t macs[30][6] = {};
-    int mac_count = bt_get_bonded_devices(macs, 30);
+    uint8_t macs[15][6];
+    int bond_count = bt_get_bonded_devices(macs, 15);
+    DeviceState snapshots[15];
+    int snap_count = sm_get_snapshots(snapshots, 15);
 
-    /* 응답 생성: 줄바꿈 구분 MAC 목록 */
-    httpd_resp_set_type(req, "text/plain");
-    char line[20];
-    for (int i = 0; i < mac_count; ++i) {
-        snprintf(line, sizeof(line), "%02X:%02X:%02X:%02X:%02X:%02X\n",
-                      macs[i][0], macs[i][1], macs[i][2],
-                      macs[i][3], macs[i][4], macs[i][5]);
-        httpd_resp_sendstr_chunk(req, line);
+    httpd_resp_set_type(req, "application/json");
+
+    AppConfig global = app_config_get();
+    char buf[256];
+    snprintf(buf, sizeof(buf), "{\"auto_unlock\":%s,\"devices\":[",
+             global.auto_unlock_enabled ? "true" : "false");
+    httpd_resp_sendstr_chunk(req, buf);
+
+    for (int i = 0; i < bond_count; i++) {
+        DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(macs[i]));
+        DeviceState *snap = find_snapshot(snapshots, snap_count, macs[i]);
+
+        snprintf(buf, sizeof(buf),
+            "%s{\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
+            "\"alias\":\"%s\",\"detected\":%s,\"rssi\":%d,"
+            "\"last_seen_ms\":%lu,\"config\":{"
+            "\"rssi_threshold\":%d,\"presence_timeout_ms\":%lu,"
+            "\"enter_window_ms\":%lu,\"enter_min_count\":%lu}}",
+            i > 0 ? "," : "",
+            macs[i][0], macs[i][1], macs[i][2],
+            macs[i][3], macs[i][4], macs[i][5],
+            cfg.alias,
+            snap ? (snap->detected ? "true" : "false") : "false",
+            snap ? snap->last_rssi : 0,
+            snap ? (unsigned long)snap->last_seen_ms : 0UL,
+            cfg.rssi_threshold,
+            (unsigned long)cfg.presence_timeout_ms,
+            (unsigned long)cfg.enter_window_ms,
+            (unsigned long)cfg.enter_min_count);
+        httpd_resp_sendstr_chunk(req, buf);
     }
-    return httpd_resp_sendstr_chunk(req, nullptr);
+
+    httpd_resp_sendstr_chunk(req, "]}");
+    httpd_resp_sendstr_chunk(req, nullptr);
+    return ESP_OK;
 }
 
 /** 본딩된 기기 삭제. body: mac=AA:BB:CC:DD:EE:FF */
@@ -596,6 +574,61 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
     for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(m[i]);
 
     bt_remove_bond(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    device_config_delete(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    sm_remove_device_queue_send(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    return send_text(req, "200 OK", "OK");
+}
+
+/** 기기별 설정 저장. body: mac=AA:BB:CC:DD:EE:FF&alias=...&rssi=N&timeout=N&enter_window=N&enter_count=N */
+static esp_err_t devices_config_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    char body[256];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return send_text(req, "400 Bad Request", "Invalid request");
+    }
+
+    // MAC 파싱
+    char mac_str[24] = {};
+    if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
+        return send_text(req, "400 Bad Request", "mac parameter is required");
+    }
+    url_decode(mac_str);
+
+    uint8_t mac[6] = {};
+    unsigned int m[6] = {};
+    if (sscanf(mac_str, "%02X:%02X:%02X:%02X:%02X:%02X",
+               &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6) {
+        return send_text(req, "400 Bad Request", "Invalid MAC format");
+    }
+    for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(m[i]);
+
+    // 현재 config를 기반으로 부분 업데이트
+    DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+
+    char val[64] = {};
+    if (httpd_query_key_value(body, "alias", val, sizeof(val)) == ESP_OK) {
+        url_decode(val);
+        snprintf(cfg.alias, sizeof(cfg.alias), "%s", val);
+    }
+    if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
+        cfg.rssi_threshold = (int8_t)atoi(val);
+    }
+    if (httpd_query_key_value(body, "timeout", val, sizeof(val)) == ESP_OK) {
+        cfg.presence_timeout_ms = (uint32_t)atoi(val);
+    }
+    if (httpd_query_key_value(body, "enter_window", val, sizeof(val)) == ESP_OK) {
+        cfg.enter_window_ms = (uint32_t)atoi(val);
+    }
+    if (httpd_query_key_value(body, "enter_count", val, sizeof(val)) == ESP_OK) {
+        cfg.enter_min_count = (uint32_t)atoi(val);
+    }
+
+    if (!validate_device_config(cfg)) {
+        return send_text(req, "400 Bad Request", "Invalid values");
+    }
+
+    device_config_set(reinterpret_cast<const uint8_t(&)[6]>(*mac), cfg);
     return send_text(req, "200 OK", "OK");
 }
 
@@ -763,13 +796,12 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/reboot",                HTTP_POST, reboot_handler,              false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
-            {"/api/tuning",                HTTP_GET,  tuning_get_handler,          false},
-            {"/api/tuning",                HTTP_POST, tuning_set_handler,          false},
-            {"/api/devices",               HTTP_GET,  devices_list_handler,        false},
+            {"/api/devices",               HTTP_GET,  devices_handler,             false},
+            {"/api/devices/config",        HTTP_POST, devices_config_handler,      false},
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 17);
+        ok = register_routes(server, sta_routes, 16);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

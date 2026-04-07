@@ -9,6 +9,7 @@ idf_component_register(
         "control_task.cpp"
         "sm_task.cpp"
         "config_service.cpp"
+        "device_config_service.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES

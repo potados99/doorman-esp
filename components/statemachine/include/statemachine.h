@@ -13,6 +13,28 @@
 enum class Action { Unlock, NoOp };
 
 /**
+ * per-device 상태. feed()가 새 MAC을 만나면 빈 슬롯에 동적 생성.
+ * 24시간 이상 미감지되면 tick()에서 정리(슬롯 해제).
+ */
+struct DeviceState {
+    uint8_t mac[6] = {};
+    bool valid = false;
+    bool detected = false;
+    bool went_undetected = false;
+    uint32_t last_seen_ms = 0;        /**< 아무 feed(true) 시각 (RSSI 무관, 재실 유지용) */
+    uint32_t last_unlock_ms = 0;
+    int8_t last_rssi = 0;             /**< 마지막 관측의 RSSI (로그용) */
+
+    /** 진입 판단용: RSSI >= threshold인 관측 타임스탬프 원형 버퍼 */
+    static constexpr int kMaxRecentObs = 10;
+    uint32_t recent_obs[kMaxRecentObs] = {};
+    int obs_idx = 0;
+    int obs_count = 0;  /**< 전체 기록된 관측 수 (kMaxRecentObs까지만) */
+
+    DeviceConfig dev_config;  /**< 기기별 설정 (update_device_config()로 갱신) */
+};
+
+/**
  * BT presence 기반 문열림 판단 상태머신.
  *
  * 외부에서 feed()로 BT 감지 이벤트를 넣고, tick()을 주기적으로 호출하면
@@ -39,7 +61,7 @@ public:
      * seen=false: 현재 사용하지 않음 (probe 실패는 타임아웃으로 처리).
      *
      * rssi: BLE 신호 세기 (dBm). 0이면 RSSI 필터링 건너뜀 (Classic용).
-     *       config.rssi_threshold보다 약하면 seen=true여도 무시.
+     *       dev_config.rssi_threshold보다 약하면 seen=true여도 무시.
      *
      * now_ms를 명시적으로 받는 이유: 호스트 테스트에서 시간을 완전히 제어하기 위함.
      */
@@ -61,36 +83,37 @@ public:
     [[nodiscard]] int device_count() const;
 
     /**
-     * 런타임에 설정을 갱신한다.
+     * 런타임에 전역 설정을 갱신한다.
      * SM Task가 유일한 소유자이므로 외부 동기화 불필요.
-     * auto_unlock_enabled 토글 등 런타임 설정 변경을 반영하기 위해 사용.
+     * auto_unlock_enabled 토글 등 전역 설정 변경을 반영하기 위해 사용.
+     * 감지 파라미터(rssi_threshold 등)는 dev_config에서 읽으므로 여기서 무시됨.
      */
     void update_config(AppConfig cfg);
+
+    /**
+     * 특정 MAC 기기의 기기별 설정을 갱신한다.
+     * 슬롯이 없으면 생성하지 않음 — feed() 호출 전에 설정해두어도,
+     * feed()가 슬롯을 만든 후 update_device_config()가 덮어쓰므로 순서 무관.
+     * 슬롯이 이미 존재하면 dev_config만 교체한다.
+     */
+    void update_device_config(const uint8_t (&mac)[6], const DeviceConfig &cfg);
+
+    /**
+     * 특정 MAC 기기의 슬롯을 삭제한다.
+     * 존재하지 않으면 무시.
+     */
+    void remove_device(const uint8_t (&mac)[6]);
+
+    /**
+     * 현재 valid한 슬롯을 out 배열에 복사한다.
+     * 반환값: 실제 복사된 항목 수 (max를 초과하지 않음).
+     */
+    int dump_states(DeviceState *out, int max) const;
 
     /** 현재 설정 값을 반환한다. 로깅/디버깅 용도. */
     [[nodiscard]] const AppConfig &config() const { return config_; }
 
 private:
-    /**
-     * per-device 상태. feed()가 새 MAC을 만나면 빈 슬롯에 동적 생성.
-     * 24시간 이상 미감지되면 tick()에서 정리(슬롯 해제).
-     */
-    struct DeviceState {
-        uint8_t mac[6] = {};
-        bool valid = false;
-        bool detected = false;
-        bool went_undetected = false;
-        uint32_t last_seen_ms = 0;        /**< 아무 feed(true) 시각 (RSSI 무관, 재실 유지용) */
-        uint32_t last_unlock_ms = 0;
-        int8_t last_rssi = 0;             /**< 마지막 관측의 RSSI (로그용) */
-
-        /** 진입 판단용: RSSI >= threshold인 관측 타임스탬프 원형 버퍼 */
-        static constexpr int kMaxRecentObs = 10;
-        uint32_t recent_obs[kMaxRecentObs] = {};
-        int obs_idx = 0;
-        int obs_count = 0;  /**< 전체 기록된 관측 수 (kMaxRecentObs까지만) */
-    };
-
     AppConfig config_;
     std::array<DeviceState, kMaxDevices> devices_ = {};
 

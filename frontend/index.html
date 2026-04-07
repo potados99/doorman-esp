@@ -19,13 +19,27 @@
         }
 
         /* ── Header ── */
-        .hdr { margin-bottom: 20px; }
+        .hdr {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
         .hdr h1 { font-size: 1.5rem; font-weight: 700; }
-        .hdr-meta { font-size: 0.72rem; color: #9ca3af; margin-top: 2px; }
+        .hdr-actions { display: flex; gap: 6px; }
+        .hdr-meta { font-size: 0.72rem; color: #9ca3af; margin-bottom: 14px; }
         .hdr-meta a { color: #9ca3af; text-decoration: none; }
         .hdr-meta a:hover { color: #6b7280; }
+        .icon-btn {
+            -webkit-appearance: none; appearance: none;
+            background: #f3f4f6; border: none; border-radius: 6px;
+            padding: 6px 10px; font: inherit; font-size: 0.82rem; font-weight: 600;
+            color: #374151; cursor: pointer;
+            transition: background 0.12s;
+        }
+        .icon-btn:active { background: #e5e7eb; }
 
-        /* ── Tabs — underline, web-native ── */
+        /* ── Tabs ── */
         .tabs { display: flex; gap: 20px; border-bottom: 1px solid #e5e7eb; margin-bottom: 20px; }
         .tab {
             -webkit-appearance: none; appearance: none;
@@ -75,7 +89,7 @@
             color: #9ca3af; margin-bottom: 10px;
         }
 
-        /* ── Card ── */
+        /* ── Card (generic) ── */
         .card {
             border: 1px solid #e5e7eb; border-radius: 8px;
             padding: 14px; margin-bottom: 10px;
@@ -128,39 +142,131 @@
             font-size: 0.82rem; color: #991b1b; line-height: 1.5;
         }
 
-        /* ── Device list ── */
-        .dev-row {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 8px 0; border-bottom: 1px solid #f3f4f6;
-            font-family: 'Menlo', 'Consolas', monospace; font-size: 0.78rem; color: #6b7280;
+        /* ── Device status cards ── */
+        .device-cards { margin-top: 20px; }
+        .status-card {
+            position: relative;
+            border: 1px solid #e5e7eb;
+            border-left: 4px solid var(--status-color, #e5e7eb);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: box-shadow 0.12s;
+            --ripple-color: var(--status-color, #e5e7eb);
+            --ripple-speed: 1.5s;
         }
-        .dev-row:last-child { border-bottom: none; }
-        .dev-row button { width: auto; margin: 0; padding: 4px 10px; font-size: 0.72rem; border-radius: 4px; }
-        #deviceList:empty::after { content: '등록된 기기 없음'; color: #d1d5db; font-size: 0.82rem; font-family: system-ui, sans-serif; }
+        .status-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
+        .status-card::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            box-shadow: 0 0 0 0 var(--ripple-color);
+            pointer-events: none;
+            opacity: 0;
+        }
+        .status-card.pulsing::after {
+            animation: cardRipple var(--ripple-speed) ease-out infinite;
+        }
+        .status-card.burst::after {
+            animation: burstRipple 0.6s ease-out forwards;
+        }
+        @keyframes cardRipple {
+            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 1; }
+            70%  { box-shadow: 0 0 0 12px var(--ripple-color); opacity: 0; }
+            100% { box-shadow: 0 0 0 12px var(--ripple-color); opacity: 0; }
+        }
+        @keyframes burstRipple {
+            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 1; }
+            100% { box-shadow: 0 0 0 20px rgba(22,163,74,0); opacity: 0; }
+        }
+        .card-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 4px;
+        }
+        .card-alias { font-size: 0.9rem; font-weight: 600; color: #111; }
+        .card-mac { font-size: 0.7rem; color: #9ca3af; font-family: 'Menlo', 'Consolas', monospace; }
+        .card-status { font-size: 0.78rem; color: #6b7280; }
+        .card-status.stale .rssi-val { color: #d1d5db; }
 
-        /* ── Log terminal ── */
-        .log-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        /* ── Empty state ── */
+        .empty-state {
+            padding: 28px 0; text-align: center;
+            font-size: 0.88rem; color: #9ca3af; line-height: 1.8;
+        }
+
+        /* ── Modal (dialog) ── */
+        dialog.modal {
+            border: none; border-radius: 12px;
+            padding: 0; max-width: 480px; width: calc(100vw - 32px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        dialog.modal::backdrop {
+            background: rgba(0,0,0,0.35);
+        }
+        .modal-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 18px 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .modal-title { font-size: 1rem; font-weight: 700; color: #111; }
+        .modal-close {
+            -webkit-appearance: none; appearance: none;
+            background: none; border: none; width: auto; margin: 0; padding: 0;
+            font-size: 1.3rem; line-height: 1; color: #9ca3af; cursor: pointer;
+        }
+        .modal-close:hover { color: #374151; }
+        .modal-body {
+            padding: 14px 18px 20px;
+            max-height: 80vh; overflow-y: auto;
+        }
+        .modal-status-text {
+            font-size: 0.82rem; color: #6b7280;
+            margin-bottom: 12px; padding: 8px 10px;
+            background: #f9fafb; border-radius: 6px;
+        }
+
+        /* ── Pair spinner ── */
+        .pair-spinner {
+            text-align: center; padding: 20px;
+            font-size: 0.9rem; color: #6b7280;
+        }
+
+        /* ── Log overlay ── */
+        #logOverlay {
+            position: fixed; inset: 0; z-index: 900;
+            background: #0f172a;
+            display: none; flex-direction: column;
+            padding: 10px;
+        }
+        #logOverlay.open { display: flex; }
+        .log-overlay-head {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 6px;
+        }
         .ws-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
         .dot-ok { background: #16a34a; }
         .dot-err { background: #dc2626; }
         .dot-wait { background: #f59e0b; }
-        .ws-label { font-size: 0.72rem; color: #9ca3af; }
-        .fs-link {
+        .ws-label { font-size: 0.72rem; color: #64748b; }
+        .log-close-btn {
             background: none; border: none; width: auto; margin: 0; padding: 0;
-            font: inherit; font-size: 0.72rem; color: #9ca3af; cursor: pointer; text-decoration: underline;
+            font: inherit; font-size: 0.72rem; color: #64748b; cursor: pointer; text-decoration: underline;
         }
-        #tagFilters { margin-bottom: 5px; font-size: 0.72rem; color: #6b7280; }
-        #tagFilters label { display: inline; margin-right: 7px; font-weight: normal; font-size: 0.72rem; color: #6b7280; }
+        #tagFilters { margin-bottom: 5px; font-size: 0.72rem; color: #94a3b8; }
+        #tagFilters label { display: inline; margin-right: 7px; font-weight: normal; font-size: 0.72rem; color: #64748b; }
         #textFilter {
             width: 100%; padding: 7px 9px;
             border: none; border-radius: 6px;
-            background: #0f172a; color: #cbd5e1;
+            background: #1e293b; color: #cbd5e1;
             font-family: 'Menlo', 'Consolas', monospace; font-size: 0.72rem;
             margin-bottom: 5px;
         }
         #textFilter::placeholder { color: #475569; }
         #logArea {
-            width: 100%; height: 280px; overflow-y: auto;
+            flex: 1;
+            overflow-y: auto;
             background: #0f172a; color: #94a3b8;
             font-family: 'Menlo', 'Consolas', monospace;
             font-size: 0.7rem; line-height: 1.65;
@@ -168,44 +274,38 @@
             white-space: pre-wrap; word-break: break-all;
         }
 
-        /* ── Fullscreen ── */
-        #logSection.fullscreen {
-            position: fixed; inset: 0; z-index: 999;
-            background: #0f172a; padding: 10px;
-            display: flex; flex-direction: column;
-        }
-        #logSection.fullscreen #logArea { flex: 1; height: auto; border-radius: 0; }
-        #logSection.fullscreen .ws-label,
-        #logSection.fullscreen #tagFilters label,
-        #logSection.fullscreen .fs-link { color: #64748b; }
-
         /* ── Responsive ── */
         @media (min-width: 600px) {
             body { padding: 32px 20px 48px; }
-            #logArea { height: 380px; }
         }
     </style>
 </head>
 <body>
 
+<!-- ── Header ── -->
 <div class="hdr">
     <h1>Doorman</h1>
-    <div class="hdr-meta">
-        <span id="buildInfo">loading...</span> · <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
+    <div class="hdr-actions">
+        <button class="icon-btn" onclick="openPairModal()">+ 기기</button>
+        <button class="icon-btn" onclick="openLogOverlay()">&#x1F4CB;</button>
     </div>
+</div>
+<div class="hdr-meta">
+    <span id="buildInfo">loading...</span>
 </div>
 
 <div id="safeBanner" class="safe-banner" style="display:none;">
     세이프 모드 — 연속 crash로 BT/자동열림이 비활성화되었습니다. 펌웨어 업데이트 또는 기기 삭제 후 재부팅하세요.
 </div>
 
+<!-- ── Tabs ── -->
 <div class="tabs">
-    <button class="tab active" onclick="switchTab('dashboard')">대시보드</button>
-    <button class="tab" onclick="switchTab('settings')">설정</button>
+    <button class="tab active" onclick="switchTab('main')">메인</button>
+    <button class="tab" onclick="switchTab('manage')">관리</button>
 </div>
 
-<!-- ── Dashboard ── -->
-<div id="tab-dashboard" class="tab-panel active">
+<!-- ── 메인 탭 ── -->
+<div id="tab-main" class="tab-panel active">
     <button class="door-btn" onclick="openDoor()">문 열기</button>
     <div id="doorStatus" class="status"></div>
 
@@ -214,51 +314,13 @@
         <button id="autoToggle" class="pill off" onclick="toggleAutoUnlock()">OFF</button>
     </div>
 
-    <div class="section">
-        <div class="section-title">실시간 로그</div>
-        <div id="logSection">
-            <div class="log-head">
-                <span class="ws-label"><span id="wsDot" class="ws-dot dot-wait"></span><span id="wsLabel">연결 중...</span></span>
-                <button onclick="toggleFullscreen()" id="fsBtn" class="fs-link">전체화면</button>
-            </div>
-            <div id="tagFilters"></div>
-            <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)" oninput="renderFilteredLogs()">
-            <div id="logArea"></div>
-        </div>
+    <div class="device-cards" id="deviceCards">
+        <!-- 기기 카드들이 여기 렌더링됨 -->
     </div>
 </div>
 
-<!-- ── Settings ── -->
-<div id="tab-settings" class="tab-panel">
-
-    <div class="card">
-        <div class="card-label">등록된 기기</div>
-        <div id="deviceList"></div>
-        <div id="deviceStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-        <div class="card-label">감지 튜닝</div>
-        <label>진입 윈도우 (ms)</label>
-        <input id="enterWindow" type="number" min="1000" max="30000" step="1000" value="5000">
-        <label>진입 최소 관측 수</label>
-        <input id="enterCount" type="number" min="1" max="10" value="3">
-        <label>진입 RSSI 임계값 (dBm)</label>
-        <input id="rssiThresh" type="number" min="-100" max="0" value="-70">
-        <div class="hint" style="margin-top:8px;">윈도우 내 RSSI 조건을 충족하는 관측이 N회 이상이면 재실로 판정합니다.</div>
-        <label>퇴실 타임아웃 (ms)</label>
-        <input id="presTimeout" type="number" min="1000" max="60000" step="1000" value="15000">
-        <div class="hint" style="margin-top:8px;">신호 없이 이 시간이 지나면 퇴실로 전환됩니다.</div>
-        <button class="btn btn-blue" onclick="saveTuning()">저장</button>
-        <div id="tuningStatus" class="status"></div>
-    </div>
-
-    <div class="card">
-        <div class="card-label">블루투스 페어링</div>
-        <button id="pairBtn" class="btn btn-orange" onclick="togglePairing()">불러오는 중...</button>
-        <div id="pairStatus" class="status"></div>
-    </div>
-
+<!-- ── 관리 탭 ── -->
+<div id="tab-manage" class="tab-panel">
     <div class="section">
         <div class="section-title" style="color:#dc2626;">Danger Zone</div>
 
@@ -298,16 +360,72 @@
     </div>
 </div>
 
-<script>
-function switchTab(name) {
-    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    document.getElementById('tab-' + name).classList.add('active');
-    document.querySelectorAll('.tab').forEach(function(t, i) {
-        if ((i === 0 && name === 'dashboard') || (i === 1 && name === 'settings')) t.classList.add('active');
-    });
-}
+<!-- ── 기기 상세 모달 ── -->
+<dialog id="detailModal" class="modal">
+    <div class="modal-head">
+        <span class="modal-title" id="modalTitle">기기 상세</span>
+        <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+        <div class="modal-status-text" id="modalStatusText"></div>
 
+        <label>별명</label>
+        <input id="modalAlias" type="text" maxlength="31">
+
+        <label>진입 RSSI 임계값 (dBm)</label>
+        <input id="modalRssi" type="number" min="-100" max="0">
+
+        <label>퇴실 타임아웃 (ms)</label>
+        <input id="modalTimeout" type="number" min="1000" max="60000" step="1000">
+
+        <label>진입 윈도우 (ms)</label>
+        <input id="modalWindow" type="number" min="1000" max="30000" step="1000">
+
+        <label>진입 최소 관측 수</label>
+        <input id="modalCount" type="number" min="1" max="10">
+
+        <button class="btn btn-blue" onclick="saveDeviceConfig()">저장</button>
+        <button class="btn btn-red" onclick="deleteCurrentDevice()">기기 삭제</button>
+        <div id="modalStatus" class="status"></div>
+    </div>
+</dialog>
+
+<!-- ── 페어링 모달 ── -->
+<dialog id="pairModal" class="modal">
+    <div class="modal-head">
+        <span class="modal-title">기기 페어링</span>
+        <button class="modal-close" onclick="closePairModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+        <div id="pairInfo" class="hint">
+            블루투스 설정에서 "Doorman"을 찾아 연결하세요.<br>
+            PIN이 필요하면 1234를 입력하세요.
+        </div>
+        <div id="pairSpinner" class="pair-spinner" style="display:none;">연결 중...</div>
+        <div id="pairDone" style="display:none;">
+            <span style="color:#16a34a; font-weight:600;">연결됨!</span>
+        </div>
+    </div>
+</dialog>
+
+<!-- ── 로그 오버레이 ── -->
+<div id="logOverlay">
+    <div class="log-overlay-head">
+        <span class="ws-label">
+            <span id="wsDot" class="ws-dot dot-wait"></span>
+            <span id="wsLabel">연결 중...</span>
+        </span>
+        <button class="log-close-btn" onclick="closeLogOverlay()">닫기</button>
+    </div>
+    <div id="tagFilters"></div>
+    <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)" oninput="renderFilteredLogs()">
+    <div id="logArea"></div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────
+   유틸리티
+   ────────────────────────────────────────── */
 function show(id, msg, cls) {
     var el = document.getElementById(id);
     el.textContent = msg;
@@ -329,11 +447,43 @@ function post(url, body, statusId, okMsg, reboot) {
     xhr.send(body);
 }
 
+function macToId(mac) {
+    return mac.replace(/:/g, '');
+}
+
+function relativeTime(ms) {
+    var sec = Math.floor(ms / 1000);
+    if (sec < 60) return sec + '초 전';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + '분 전';
+    return Math.floor(min / 60) + '시간 전';
+}
+
+/* ──────────────────────────────────────────
+   탭 전환
+   ────────────────────────────────────────── */
+function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.getElementById('tab-' + name).classList.add('active');
+    var tabNames = ['main', 'manage'];
+    var tabs = document.querySelectorAll('.tab');
+    for (var i = 0; i < tabs.length; i++) {
+        if (tabNames[i] === name) tabs[i].classList.add('active');
+    }
+}
+
+/* ──────────────────────────────────────────
+   문 열기
+   ────────────────────────────────────────── */
 function openDoor() {
     show('doorStatus', '전송 중...', 'run');
     post('/api/door/open', null, 'doorStatus', '문이 열렸습니다', false);
 }
 
+/* ──────────────────────────────────────────
+   자동 열림 토글
+   ────────────────────────────────────────── */
 function toggleAutoUnlock() {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/auto-unlock/toggle');
@@ -352,24 +502,555 @@ function loadAutoUnlockStatus() {
     xhr.send();
 }
 
-function togglePairing() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/pairing/toggle');
-    xhr.onload = function() { if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on'); };
-    xhr.send();
+/* ──────────────────────────────────────────
+   기기 카드 상태 관리
+   ────────────────────────────────────────── */
+var deviceData = {};    // mac → {alias, mac, detected, rssi, last_seen_ms, config}
+var cardState = {};     // mac → 'absent' | 'detecting' | 'present'
+var detectCount = {};   // mac → {cur, need}
+var lastBtTime = {};    // mac → Date.now()
+
+var STATE_COLORS = {
+    absent:    '#e5e7eb',
+    detecting: '#f59e0b',
+    present:   '#16a34a',
+    unlock:    '#16a34a'
+};
+
+function renderDeviceCards() {
+    var container = document.getElementById('deviceCards');
+    var macs = Object.keys(deviceData);
+    if (macs.length === 0) {
+        container.innerHTML = '<div class="empty-state">등록된 기기가 없습니다.<br>우상단 [+ 기기] 버튼을 눌러 블루투스 기기를 연결하세요.</div>';
+        return;
+    }
+    for (var i = 0; i < macs.length; i++) {
+        var mac = macs[i];
+        var dev = deviceData[mac];
+        var existingCard = document.getElementById('card-' + macToId(mac));
+        if (!existingCard) {
+            var card = document.createElement('div');
+            card.className = 'status-card';
+            card.id = 'card-' + macToId(mac);
+            card.setAttribute('data-mac', mac);
+            card.innerHTML =
+                '<div class="card-header">' +
+                  '<span class="card-alias"></span>' +
+                  '<span class="card-mac"></span>' +
+                '</div>' +
+                '<div class="card-status"></div>';
+            card.addEventListener('click', (function(m) {
+                return function() { openDetailModal(m); };
+            })(mac));
+            card.addEventListener('animationend', function() {
+                this.classList.remove('burst');
+            });
+            container.appendChild(card);
+        }
+        updateCardDisplay(mac);
+    }
+    // 삭제된 기기 카드 제거
+    var cards = container.querySelectorAll('.status-card');
+    for (var j = 0; j < cards.length; j++) {
+        var cardMac = cards[j].getAttribute('data-mac');
+        if (!deviceData[cardMac]) cards[j].remove();
+    }
 }
-function updatePairingBtn(on) {
-    var btn = document.getElementById('pairBtn');
-    btn.textContent = on ? '페어링 중 (탭하여 중지)' : '페어링 시작';
-    btn.className = 'btn ' + (on ? 'btn-green' : 'btn-orange');
+
+function updateCardDisplay(mac) {
+    var card = document.getElementById('card-' + macToId(mac));
+    if (!card) return;
+    var dev = deviceData[mac];
+    if (!dev) return;
+
+    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
+    var color = STATE_COLORS[state] || '#e5e7eb';
+
+    card.style.setProperty('--status-color', color);
+    card.style.setProperty('--ripple-color', color);
+    card.querySelector('.card-alias').textContent = dev.alias || mac;
+    card.querySelector('.card-mac').textContent = mac;
+
+    var statusText = '';
+    if (state === 'absent') {
+        statusText = '미감지';
+        card.classList.remove('pulsing');
+    } else if (state === 'detecting') {
+        var dc = detectCount[mac];
+        if (dc) {
+            statusText = '감지 중 ' + dc.cur + '/' + dc.need;
+        } else {
+            statusText = '감지 중';
+        }
+        card.classList.add('pulsing');
+    } else if (state === 'present') {
+        var rssiStr = (dev.rssi !== undefined && dev.rssi !== null) ? ' · RSSI ' + dev.rssi : '';
+        statusText = '재실' + rssiStr;
+        card.classList.remove('pulsing');
+    }
+
+    var statusEl = card.querySelector('.card-status');
+    statusEl.textContent = statusText;
+    statusEl.className = 'card-status';
 }
-function loadPairingStatus() {
+
+function updateCardRssi(mac, rssi) {
+    if (!deviceData[mac]) return;
+    deviceData[mac].rssi = rssi;
+    lastBtTime[mac] = Date.now();
+    var card = document.getElementById('card-' + macToId(mac));
+    if (!card) return;
+    card.querySelector('.card-status').classList.remove('stale');
+    // present 상태면 RSSI 갱신 표시
+    if (cardState[mac] === 'present') {
+        updateCardDisplay(mac);
+    }
+}
+
+function updateCardState(mac, state, line) {
+    if (!deviceData[mac]) return;
+    var prev = cardState[mac];
+    cardState[mac] = state;
+
+    if (state === 'detecting') {
+        // "detecting N/M" 파싱
+        var dm = line.match(/detecting (\d+)\/(\d+)/);
+        if (dm) detectCount[mac] = { cur: parseInt(dm[1]), need: parseInt(dm[2]) };
+        updateCardDisplay(mac);
+    } else if (state === 'present') {
+        detectCount[mac] = null;
+        updateCardDisplay(mac);
+    } else if (state === 'absent') {
+        detectCount[mac] = null;
+        updateCardDisplay(mac);
+    } else if (state === 'unlock') {
+        // burst 리플 트리거
+        var card = document.getElementById('card-' + macToId(mac));
+        if (card) {
+            card.classList.remove('burst');
+            void card.offsetWidth; // reflow
+            card.classList.add('burst');
+        }
+        // unlock 후 present 상태 유지
+        cardState[mac] = 'present';
+    }
+}
+
+function onDevicePaired(mac, name) {
+    // 페어링 모달이 열려있으면 "연결됨!" 표시
+    var pairModal = document.getElementById('pairModal');
+    if (pairModal.open) {
+        document.getElementById('pairSpinner').style.display = 'none';
+        document.getElementById('pairDone').style.display = 'block';
+    }
+    // 1초 후 기기 목록 갱신
+    setTimeout(loadDevices, 1000);
+}
+
+function applyFullState(data) {
+    if (data.auto_unlock !== undefined) setAutoBtn(data.auto_unlock);
+    if (data.devices) {
+        // 기존 deviceData 초기화 후 재구성
+        var newData = {};
+        for (var i = 0; i < data.devices.length; i++) {
+            var d = data.devices[i];
+            newData[d.mac] = d;
+            // WS로 상태가 아직 오지 않았으면 detected 값으로 초기화
+            if (!cardState[d.mac]) {
+                cardState[d.mac] = d.detected ? 'present' : 'absent';
+            }
+        }
+        deviceData = newData;
+        renderDeviceCards();
+    }
+}
+
+function loadDevices() {
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/pairing/status');
-    xhr.onload = function() { if (xhr.status === 200) updatePairingBtn(xhr.responseText === 'on'); };
+    xhr.open('GET', '/api/devices');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                applyFullState(JSON.parse(xhr.responseText));
+            } catch(e) {}
+        }
+    };
     xhr.send();
 }
 
+// stale 감지: present 카드에서 2초마다 확인, 3초 무응답 → stale
+setInterval(function() {
+    var now = Date.now();
+    var macs = Object.keys(deviceData);
+    for (var i = 0; i < macs.length; i++) {
+        var mac = macs[i];
+        var card = document.getElementById('card-' + macToId(mac));
+        if (!card) continue;
+        if (cardState[mac] === 'present') {
+            var last = lastBtTime[mac] || 0;
+            var statusEl = card.querySelector('.card-status');
+            if (now - last > 3000) {
+                statusEl.classList.add('stale');
+            } else {
+                statusEl.classList.remove('stale');
+            }
+        }
+    }
+}, 2000);
+
+/* ──────────────────────────────────────────
+   기기 상세 모달
+   ────────────────────────────────────────── */
+var currentDetailMac = null;
+
+function openDetailModal(mac) {
+    var dev = deviceData[mac];
+    if (!dev) return;
+    currentDetailMac = mac;
+
+    document.getElementById('modalTitle').textContent = dev.alias || mac;
+
+    // 상태 텍스트
+    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
+    var stateLabel = state === 'present' ? '재실' : (state === 'detecting' ? '감지 중' : '미감지');
+    var rssiPart = (dev.rssi !== undefined && dev.rssi !== null) ? ' · RSSI ' + dev.rssi : '';
+    var timePart = '';
+    if (lastBtTime[mac]) {
+        timePart = ' · ' + relativeTime(Date.now() - lastBtTime[mac]);
+    }
+    document.getElementById('modalStatusText').textContent = stateLabel + rssiPart + timePart;
+
+    // 폼 채우기
+    document.getElementById('modalAlias').value = dev.alias || '';
+    if (dev.config) {
+        document.getElementById('modalRssi').value = dev.config.rssi_threshold !== undefined ? dev.config.rssi_threshold : '';
+        document.getElementById('modalTimeout').value = dev.config.presence_timeout_ms !== undefined ? dev.config.presence_timeout_ms : '';
+        document.getElementById('modalWindow').value = dev.config.enter_window_ms !== undefined ? dev.config.enter_window_ms : '';
+        document.getElementById('modalCount').value = dev.config.enter_min_count !== undefined ? dev.config.enter_min_count : '';
+    }
+
+    document.getElementById('modalStatus').style.display = 'none';
+
+    var modal = document.getElementById('detailModal');
+    document.body.style.overflow = 'hidden';
+    modal.showModal();
+}
+
+function closeDetailModal() {
+    var modal = document.getElementById('detailModal');
+    modal.close();
+    document.body.style.overflow = '';
+    currentDetailMac = null;
+}
+
+document.getElementById('detailModal').addEventListener('click', function(e) {
+    if (e.target === this) closeDetailModal();
+});
+
+function saveDeviceConfig() {
+    if (!currentDetailMac) return;
+    show('modalStatus', '저장 중...', 'run');
+
+    var parts = ['mac=' + encodeURIComponent(currentDetailMac)];
+    var alias = document.getElementById('modalAlias').value.trim();
+    if (alias) parts.push('alias=' + encodeURIComponent(alias));
+    var rssi = document.getElementById('modalRssi').value;
+    if (rssi !== '') parts.push('rssi=' + encodeURIComponent(rssi));
+    var timeout = document.getElementById('modalTimeout').value;
+    if (timeout !== '') parts.push('timeout=' + encodeURIComponent(timeout));
+    var win = document.getElementById('modalWindow').value;
+    if (win !== '') parts.push('enter_window=' + encodeURIComponent(win));
+    var count = document.getElementById('modalCount').value;
+    if (count !== '') parts.push('enter_count=' + encodeURIComponent(count));
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/devices/config');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show('modalStatus', '저장됨!', 'ok');
+            // alias 갱신
+            if (alias && deviceData[currentDetailMac]) {
+                deviceData[currentDetailMac].alias = alias;
+                updateCardDisplay(currentDetailMac);
+            }
+            setTimeout(loadDevices, 500);
+        } else {
+            show('modalStatus', '오류: ' + xhr.responseText, 'err');
+        }
+    };
+    xhr.onerror = function() { show('modalStatus', '연결 끊김', 'err'); };
+    xhr.send(parts.join('&'));
+}
+
+function deleteCurrentDevice() {
+    if (!currentDetailMac) return;
+    var mac = currentDetailMac;
+    if (!confirm(mac + ' 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.')) return;
+    show('modalStatus', '삭제 중...', 'run');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/devices/delete');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show('modalStatus', '삭제됨', 'ok');
+            delete deviceData[mac];
+            delete cardState[mac];
+            delete detectCount[mac];
+            delete lastBtTime[mac];
+            renderDeviceCards();
+            setTimeout(closeDetailModal, 800);
+        } else {
+            show('modalStatus', '오류: ' + xhr.responseText, 'err');
+        }
+    };
+    xhr.onerror = function() { show('modalStatus', '연결 끊김', 'err'); };
+    xhr.send('mac=' + encodeURIComponent(mac));
+}
+
+/* ──────────────────────────────────────────
+   페어링 모달
+   ────────────────────────────────────────── */
+function openPairModal() {
+    var modal = document.getElementById('pairModal');
+    document.getElementById('pairInfo').style.display = 'block';
+    document.getElementById('pairSpinner').style.display = 'none';
+    document.getElementById('pairDone').style.display = 'none';
+
+    document.body.style.overflow = 'hidden';
+    modal.showModal();
+
+    // 페어링 시작
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/pairing/toggle');
+    xhr.onload = function() {
+        if (xhr.status === 200 && xhr.responseText === 'on') {
+            document.getElementById('pairSpinner').style.display = 'block';
+        }
+    };
+    xhr.send(null);
+}
+
+function closePairModal() {
+    var modal = document.getElementById('pairModal');
+    modal.close();
+    document.body.style.overflow = '';
+
+    // 페어링 종료
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/pairing/toggle');
+    xhr.onload = function() {};
+    xhr.send(null);
+}
+
+document.getElementById('pairModal').addEventListener('click', function(e) {
+    if (e.target === this) closePairModal();
+});
+
+/* ──────────────────────────────────────────
+   로그 오버레이
+   ────────────────────────────────────────── */
+function openLogOverlay() {
+    document.getElementById('logOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeLogOverlay() {
+    document.getElementById('logOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        if (document.getElementById('logOverlay').classList.contains('open')) closeLogOverlay();
+    }
+});
+
+/* ──────────────────────────────────────────
+   로그
+   ────────────────────────────────────────── */
+var MAX_LOG_LINES = 500;
+var rawLogs = [];
+var autoFollow = true;
+var knownTags = {};
+var allChecked = true;
+var tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
+
+document.getElementById('logArea').addEventListener('scroll', function() {
+    autoFollow = (this.scrollHeight - this.scrollTop - this.clientHeight) < 50;
+});
+
+function extractTag(line) {
+    var m = line.match(tagRegex);
+    return m ? m[1] : null;
+}
+
+function renderTagFilters() {
+    var c = document.getElementById('tagFilters');
+    var h = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
+    var tags = Object.keys(knownTags).sort();
+    for (var i = 0; i < tags.length; i++) {
+        h += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
+    }
+    c.innerHTML = h;
+}
+
+function toggleAllTags(checked) {
+    allChecked = checked;
+    var t = Object.keys(knownTags);
+    for (var i = 0; i < t.length; i++) knownTags[t[i]] = checked;
+    renderTagFilters();
+    renderFilteredLogs();
+}
+
+function onTagChange() {
+    var boxes = document.querySelectorAll('#tagFilters input[data-tag]');
+    var allOn = true;
+    for (var i = 0; i < boxes.length; i++) {
+        knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked;
+        if (!boxes[i].checked) allOn = false;
+    }
+    allChecked = allOn;
+    var a = document.getElementById('tagAll');
+    if (a) a.checked = allOn;
+    renderFilteredLogs();
+}
+
+function renderFilteredLogs() {
+    var area = document.getElementById('logArea');
+    var tf = document.getElementById('textFilter').value.toLowerCase();
+    var f = [];
+    for (var i = 0; i < rawLogs.length; i++) {
+        var tag = extractTag(rawLogs[i]);
+        if (tag !== null && !knownTags[tag]) continue;
+        if (tf && rawLogs[i].toLowerCase().indexOf(tf) === -1) continue;
+        f.push(rawLogs[i]);
+    }
+    area.textContent = f.join('\n');
+    if (autoFollow) area.scrollTop = area.scrollHeight;
+}
+
+/* ──────────────────────────────────────────
+   WS 로그 파싱
+   ────────────────────────────────────────── */
+var lineBuf = '';
+var logDirty = false;
+var rafId = 0;
+
+function processWsData(data) {
+    var combined = lineBuf + data;
+    var lines = combined.split('\n');
+    lineBuf = lines[lines.length - 1]; // 불완전 라인 보관
+
+    var tagUpdated = false;
+    for (var i = 0; i < lines.length - 1; i++) {
+        var l = lines[i];
+        if (l === '') continue;
+        rawLogs.push(l);
+        if (rawLogs.length > MAX_LOG_LINES) rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
+
+        // 태그 수집
+        var tag = extractTag(l);
+        if (tag && !(tag in knownTags)) { knownTags[tag] = true; tagUpdated = true; }
+
+        // 카드 업데이트
+        var bt = l.match(/bt: ([0-9A-F:]{17}) rssi=(-?\d+)/);
+        if (bt) { updateCardRssi(bt[1], parseInt(bt[2])); continue; }
+
+        var pair = l.match(/bt: ([0-9A-F:]{17}) paired (.+)/);
+        if (pair) { onDevicePaired(pair[1], pair[2]); continue; }
+
+        var sm = l.match(/sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/);
+        if (sm) { updateCardState(sm[1], sm[2], l); continue; }
+    }
+
+    if (tagUpdated) renderTagFilters();
+    logDirty = true;
+    if (!rafId) rafId = requestAnimationFrame(flushRender);
+}
+
+function flushRender() {
+    rafId = 0;
+    if (logDirty) { renderFilteredLogs(); logDirty = false; }
+}
+
+/* ──────────────────────────────────────────
+   WS 재연결 (epoch 기반 + REST 동기화)
+   ────────────────────────────────────────── */
+var wsEpoch = 0;
+var syncing = false;
+var wsBuffer = [];
+var wsToken = '';
+var reconnectDelay = 2000;
+var ws = null;
+var host = location.host || 'doorman.local';
+
+function wsConnect() {
+    if (!wsToken) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/ws-token');
+        xhr.onload = function() {
+            if (xhr.status === 200) { wsToken = xhr.responseText; wsConnect(); }
+            else setTimeout(wsConnect, 3000);
+        };
+        xhr.onerror = function() { setTimeout(wsConnect, 3000); };
+        xhr.send();
+        return;
+    }
+
+    var currentEpoch = ++wsEpoch;
+    syncing = true; wsBuffer = [];
+
+    ws = new WebSocket('ws://' + host + '/ws?token=' + wsToken);
+
+    ws.onopen = function() {
+        document.getElementById('wsDot').className = 'ws-dot dot-ok';
+        document.getElementById('wsLabel').textContent = '연결됨';
+        reconnectDelay = 2000;
+
+        // REST로 전체 상태 fetch
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/devices');
+        xhr.onload = function() {
+            if (currentEpoch !== wsEpoch) return;
+            if (xhr.status === 200) {
+                try { applyFullState(JSON.parse(xhr.responseText)); } catch(e) {}
+            }
+            for (var i = 0; i < wsBuffer.length; i++) processWsData(wsBuffer[i]);
+            wsBuffer = []; syncing = false;
+        };
+        xhr.onerror = function() {
+            if (currentEpoch !== wsEpoch) return;
+            for (var i = 0; i < wsBuffer.length; i++) processWsData(wsBuffer[i]);
+            wsBuffer = []; syncing = false;
+        };
+        xhr.send();
+    };
+
+    ws.onmessage = function(evt) {
+        if (currentEpoch !== wsEpoch) return;
+        if (syncing) wsBuffer.push(evt.data);
+        else processWsData(evt.data);
+    };
+
+    ws.onclose = function() {
+        if (currentEpoch !== wsEpoch) return;
+        document.getElementById('wsDot').className = 'ws-dot dot-err';
+        document.getElementById('wsLabel').textContent = '연결 끊김. 재연결 중...';
+        var delay = Math.min(reconnectDelay + Math.random() * 1000, 30000);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        setTimeout(wsConnect, delay);
+    };
+
+    ws.onerror = function() {
+        document.getElementById('wsDot').className = 'ws-dot dot-err';
+        document.getElementById('wsLabel').textContent = '오류';
+        ws.close();
+    };
+}
+
+/* ──────────────────────────────────────────
+   관리 기능
+   ────────────────────────────────────────── */
 function uploadFirmware() {
     var file = document.getElementById('file').files[0];
     if (!file) { show('otaStatus', '.bin 파일을 선택하세요.', 'err'); return; }
@@ -410,131 +1091,11 @@ function rebootDevice() {
     post('/api/reboot', null, 'rebootStatus', '재부팅 중...', true);
 }
 
-function toggleFullscreen() {
-    var s = document.getElementById('logSection');
-    s.classList.toggle('fullscreen');
-    document.getElementById('fsBtn').textContent = s.classList.contains('fullscreen') ? '닫기' : '전체화면';
-}
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { var s = document.getElementById('logSection'); if (s.classList.contains('fullscreen')) toggleFullscreen(); }
-});
-
-var MAX_LOG_LINES = 500, rawLogs = [], autoFollow = true;
-document.getElementById('logArea').addEventListener('scroll', function() { autoFollow = (this.scrollHeight - this.scrollTop - this.clientHeight) < 50; });
-var knownTags = {}, allChecked = true, ws = null, tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
-
-function extractTag(line) { var m = line.match(tagRegex); return m ? m[1] : null; }
-
-function renderTagFilters() {
-    var c = document.getElementById('tagFilters');
-    var h = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
-    var tags = Object.keys(knownTags).sort();
-    for (var i = 0; i < tags.length; i++) h += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
-    c.innerHTML = h;
-}
-function toggleAllTags(checked) {
-    allChecked = checked;
-    var t = Object.keys(knownTags); for (var i = 0; i < t.length; i++) knownTags[t[i]] = checked;
-    renderTagFilters(); renderFilteredLogs();
-}
-function onTagChange() {
-    var boxes = document.querySelectorAll('#tagFilters input[data-tag]'), allOn = true;
-    for (var i = 0; i < boxes.length; i++) { knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked; if (!boxes[i].checked) allOn = false; }
-    allChecked = allOn;
-    var a = document.getElementById('tagAll'); if (a) a.checked = allOn;
-    renderFilteredLogs();
-}
-function renderFilteredLogs() {
-    var area = document.getElementById('logArea'), tf = document.getElementById('textFilter').value.toLowerCase(), f = [];
-    for (var i = 0; i < rawLogs.length; i++) {
-        var tag = extractTag(rawLogs[i]);
-        if (tag !== null && !knownTags[tag]) continue;
-        if (tf && rawLogs[i].toLowerCase().indexOf(tf) === -1) continue;
-        f.push(rawLogs[i]);
-    }
-    area.textContent = f.join('\n');
-    if (autoFollow) area.scrollTop = area.scrollHeight;
-}
-
-var wsToken = '';
-function wsConnect() {
-    if (!wsToken) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/ws-token');
-        xhr.onload = function() { if (xhr.status === 200) { wsToken = xhr.responseText; wsConnect(); } else setTimeout(wsConnect, 3000); };
-        xhr.onerror = function() { setTimeout(wsConnect, 3000); };
-        xhr.send(); return;
-    }
-    var host = location.host || 'doorman.local';
-    ws = new WebSocket('ws://' + host + '/ws?token=' + wsToken);
-    ws.onopen = function() { document.getElementById('wsDot').className = 'ws-dot dot-ok'; document.getElementById('wsLabel').textContent = '연결됨'; };
-    ws.onmessage = function(evt) {
-        var lines = evt.data.split('\n'), upd = false;
-        for (var i = 0; i < lines.length; i++) {
-            var l = lines[i]; if (l === '' && i === lines.length - 1) continue;
-            rawLogs.push(l);
-            var tag = extractTag(l); if (tag && !(tag in knownTags)) { knownTags[tag] = true; upd = true; }
-        }
-        if (rawLogs.length > MAX_LOG_LINES) rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
-        if (upd) renderTagFilters(); renderFilteredLogs();
-    };
-    ws.onclose = function() { document.getElementById('wsDot').className = 'ws-dot dot-err'; document.getElementById('wsLabel').textContent = '연결 끊김. 재연결 중...'; setTimeout(wsConnect, 3000); };
-    ws.onerror = function() { document.getElementById('wsDot').className = 'ws-dot dot-err'; document.getElementById('wsLabel').textContent = '오류'; ws.close(); };
-}
+/* ──────────────────────────────────────────
+   초기화
+   ────────────────────────────────────────── */
+loadAutoUnlockStatus();
 wsConnect();
-
-function loadTuning() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/tuning');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            var p = xhr.responseText.split(',');
-            document.getElementById('rssiThresh').value = p[0];
-            document.getElementById('presTimeout').value = p[1];
-            if (p.length > 2) document.getElementById('enterWindow').value = p[2];
-            if (p.length > 3) document.getElementById('enterCount').value = p[3];
-        }
-    };
-    xhr.send();
-}
-function saveTuning() {
-    show('tuningStatus', '저장 중...', 'run');
-    post('/api/tuning', 'rssi=' + document.getElementById('rssiThresh').value + '&timeout=' + document.getElementById('presTimeout').value + '&enter_window=' + document.getElementById('enterWindow').value + '&enter_count=' + document.getElementById('enterCount').value, 'tuningStatus', '저장됨!', false);
-}
-
-function loadDevices() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/devices');
-    xhr.onload = function() {
-        var c = document.getElementById('deviceList');
-        if (xhr.status !== 200) { c.textContent = '기기 목록 로드 실패'; return; }
-        var t = xhr.responseText.trim();
-        if (!t) { c.innerHTML = ''; return; }
-        var macs = t.split('\n'); c.innerHTML = '';
-        for (var i = 0; i < macs.length; i++) {
-            var mac = macs[i].trim(); if (!mac) continue;
-            var d = document.createElement('div'); d.className = 'dev-row';
-            var s = document.createElement('span'); s.textContent = mac;
-            var b = document.createElement('button'); b.textContent = '삭제'; b.className = 'btn btn-red'; b.setAttribute('data-mac', mac);
-            b.onclick = function() { deleteDevice(this.getAttribute('data-mac')); };
-            d.appendChild(s); d.appendChild(b); c.appendChild(d);
-        }
-    };
-    xhr.onerror = function() { document.getElementById('deviceList').textContent = '연결 오류'; };
-    xhr.send();
-}
-function deleteDevice(mac) {
-    if (!confirm(mac + ' 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.')) return;
-    show('deviceStatus', mac + ' 삭제 중...', 'run');
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/devices/delete');
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() { if (xhr.status === 200) { show('deviceStatus', mac + ' 삭제됨', 'ok'); setTimeout(loadDevices, 500); } else show('deviceStatus', '오류: ' + xhr.responseText, 'err'); };
-    xhr.onerror = function() { show('deviceStatus', '연결 끊김', 'err'); };
-    xhr.send('mac=' + mac);
-}
-
-loadTuning(); loadAutoUnlockStatus(); loadDevices(); loadPairingStatus();
 
 (function() {
     var xhr = new XMLHttpRequest();
@@ -546,12 +1107,11 @@ loadTuning(); loadAutoUnlockStatus(); loadDevices(); loadPairingStatus();
             document.getElementById('buildInfo').textContent = info.version + ' · ' + info.date;
             if (info.safe_mode) {
                 document.getElementById('safeBanner').style.display = 'block';
-                /* 세이프 모드: BT/자동열림 관련 UI 비활성화 */
                 document.querySelector('.door-btn').disabled = true;
-                var at = document.getElementById('autoToggle'); if (at) at.disabled = true;
-                var pb = document.getElementById('pairBtn'); if (pb) pb.disabled = true;
+                var at = document.getElementById('autoToggle');
+                if (at) at.disabled = true;
             }
-        } catch (e) {
+        } catch(e) {
             document.getElementById('buildInfo').textContent = xhr.responseText;
         }
     };

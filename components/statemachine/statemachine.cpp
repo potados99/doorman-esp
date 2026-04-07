@@ -18,7 +18,7 @@ void StateMachine::mac_to_str(const uint8_t *mac, char *buf, size_t buf_size) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-StateMachine::DeviceState *StateMachine::find_device(const uint8_t (&mac)[6]) {
+DeviceState *StateMachine::find_device(const uint8_t (&mac)[6]) {
     for (auto &d : devices_) {
         if (d.valid && std::memcmp(d.mac, mac, 6) == 0) {
             return &d;
@@ -27,7 +27,7 @@ StateMachine::DeviceState *StateMachine::find_device(const uint8_t (&mac)[6]) {
     return nullptr;
 }
 
-StateMachine::DeviceState *StateMachine::find_or_create(const uint8_t (&mac)[6]) {
+DeviceState *StateMachine::find_or_create(const uint8_t (&mac)[6]) {
     DeviceState *existing = find_device(mac);
     if (existing) {
         return existing;
@@ -68,7 +68,7 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
      * rssi == 0이면 Classic (RSSI 없음) → 필터링 건너뜀.
      * 예: rssi=-75, threshold=-70 → -75 < -70 → 신호 약함 → 무시.
      */
-    if (rssi != 0 && rssi < config_.rssi_threshold) {
+    if (rssi != 0 && rssi < dev->dev_config.rssi_threshold) {
         return;
     }
 
@@ -84,16 +84,16 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
     /** 진입 진행 상황 로그: 윈도우 내 관측 수 표시 */
     int count = 0;
     for (int i = 0; i < dev->obs_count && i < DeviceState::kMaxRecentObs; ++i) {
-        if (now_ms - dev->recent_obs[i] <= config_.enter_window_ms) {
+        if (now_ms - dev->recent_obs[i] <= dev->dev_config.enter_window_ms) {
             ++count;
         }
     }
     if (count > 0) {
         char s[18];
         mac_to_str(mac, s, sizeof(s));
-        ESP_LOGI(TAG, "%s %lums내 %d/%lu건 (RSSI %d)",
-                 s, (unsigned long)config_.enter_window_ms,
-                 count, (unsigned long)config_.enter_min_count, rssi);
+        ESP_LOGI(TAG, "%s detecting %d/%lu %lu",
+                 s, count, (unsigned long)dev->dev_config.enter_min_count,
+                 (unsigned long)dev->dev_config.enter_window_ms);
     }
 }
 
@@ -105,14 +105,14 @@ Action StateMachine::tick(uint32_t now_ms) {
 
         // 1. 퇴실 판단: 오래 안 보이면 미감지 전환
         if (dev.detected && dev.last_seen_ms > 0) {
-            if (now_ms - dev.last_seen_ms >= config_.presence_timeout_ms) {
+            if (now_ms - dev.last_seen_ms >= dev.dev_config.presence_timeout_ms) {
                 dev.detected = false;
                 dev.went_undetected = true;
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                ESP_LOGI(TAG, "%s 퇴실 (타임아웃 %lums)", s,
-                         (unsigned long)config_.presence_timeout_ms);
+                ESP_LOGI(TAG, "%s absent %lu", s,
+                         (unsigned long)dev.dev_config.presence_timeout_ms);
             }
         }
 
@@ -120,22 +120,16 @@ Action StateMachine::tick(uint32_t now_ms) {
         if (!dev.detected) {
             int count = 0;
             for (int i = 0; i < dev.obs_count && i < DeviceState::kMaxRecentObs; ++i) {
-                if (now_ms - dev.recent_obs[i] <= config_.enter_window_ms) {
+                if (now_ms - dev.recent_obs[i] <= dev.dev_config.enter_window_ms) {
                     ++count;
                 }
             }
-            if (count >= static_cast<int>(config_.enter_min_count)) {
+            if (count >= static_cast<int>(dev.dev_config.enter_min_count)) {
                 dev.detected = true;
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                if (dev.last_rssi != 0) {
-                    ESP_LOGI(TAG, "%s 재실 (관측 %d회/%lums, RSSI %d)", s,
-                             count, (unsigned long)config_.enter_window_ms, dev.last_rssi);
-                } else {
-                    ESP_LOGI(TAG, "%s 재실 (관측 %d회/%lums, Classic)", s,
-                             count, (unsigned long)config_.enter_window_ms);
-                }
+                ESP_LOGI(TAG, "%s present", s);
             }
         }
 
@@ -148,7 +142,7 @@ Action StateMachine::tick(uint32_t now_ms) {
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                ESP_LOGI(TAG, "%s → Unlock (최초 감지)", s);
+                ESP_LOGI(TAG, "%s unlock", s);
                 return Action::Unlock;
             }
 
@@ -159,7 +153,7 @@ Action StateMachine::tick(uint32_t now_ms) {
 
                 char s[18];
                 mac_to_str(dev.mac, s, sizeof(s));
-                ESP_LOGI(TAG, "%s → Unlock (재감지)", s);
+                ESP_LOGI(TAG, "%s unlock", s);
                 return Action::Unlock;
             }
         }
@@ -186,6 +180,42 @@ void StateMachine::update_config(AppConfig cfg) {
      * SM은 항상 Unlock을 판정하고, SM Task에서 auto_unlock/유예기간에 따라
      * Control 전달을 억제하므로, SM 내부 상태는 항상 정상 추적된다.
      */
+}
+
+void StateMachine::update_device_config(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
+    /**
+     * 슬롯이 이미 있으면 dev_config만 교체.
+     * 없으면 새 슬롯을 만들어 config를 적용.
+     * 이렇게 해야 sm_task가 시작 시 NVS config를 push할 때
+     * 슬롯이 미리 준비되어, 이후 feed()가 동일한 슬롯을 사용하게 된다.
+     */
+    DeviceState *dev = find_or_create(mac);
+    if (dev) {
+        dev->dev_config = cfg;
+    }
+}
+
+void StateMachine::remove_device(const uint8_t (&mac)[6]) {
+    DeviceState *dev = find_device(mac);
+    if (dev) {
+        char s[18];
+        mac_to_str(mac, s, sizeof(s));
+        ESP_LOGI(TAG, "%s 슬롯 제거 (remove_device)", s);
+        *dev = DeviceState{};
+    }
+}
+
+int StateMachine::dump_states(DeviceState *out, int max) const {
+    int count = 0;
+    for (const auto &d : devices_) {
+        if (count >= max) {
+            break;
+        }
+        if (d.valid) {
+            out[count++] = d;
+        }
+    }
+    return count;
 }
 
 void StateMachine::cleanup_stale(uint32_t now_ms) {

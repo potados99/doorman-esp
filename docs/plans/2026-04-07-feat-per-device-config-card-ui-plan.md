@@ -1,7 +1,7 @@
 ---
 title: "feat: Per-Device Config + Card UI Redesign"
 type: feat
-status: active
+status: completed
 date: 2026-04-07
 deepened: 2026-04-07
 brainstorm: docs/brainstorms/2026-04-07-per-device-config-and-ui-brainstorm.md
@@ -614,23 +614,23 @@ setInterval(function() {
 
 ### Functional
 
-- [ ] 기기별 rssi_threshold, presence_timeout_ms, enter_window_ms, enter_min_count 독립 적용
-- [ ] 별명 설정/수정, 페어링 시 기기명으로 자동 설정
-- [ ] 카드 UI: 컴팩트 카드 리스트, 보더 색상 + 리플 애니메이션으로 상태 표현
-- [ ] 기기 상세 모달: 실시간 상태 + 설정 편집 + 저장/삭제
-- [ ] 페어링 모달: 스피너 + 안내 + 연결됨 피드백 + 닫기=종료
-- [ ] 온보딩: 기기 0개 시 안내 표시
-- [ ] 로그 뷰어: 우상단 [📋] → 전체화면 오버레이 (기존 기능 유지)
-- [ ] [관리] 탭: Danger Zone (OTA, WiFi, 계정, 재부팅)
+- [x] 기기별 rssi_threshold, presence_timeout_ms, enter_window_ms, enter_min_count 독립 적용
+- [x] 별명 설정/수정, 페어링 시 기기명으로 자동 설정
+- [x] 카드 UI: 컴팩트 카드 리스트, 보더 색상 + 리플 애니메이션으로 상태 표현
+- [x] 기기 상세 모달: 실시간 상태 + 설정 편집 + 저장/삭제
+- [x] 페어링 모달: 스피너 + 안내 + 연결됨 피드백 + 닫기=종료
+- [x] 온보딩: 기기 0개 시 안내 표시
+- [x] 로그 뷰어: 우상단 [📋] → 전체화면 오버레이 (기존 기능 유지)
+- [x] [관리] 탭: Danger Zone (OTA, WiFi, 계정, 재부팅)
 
 ### Technical
 
-- [ ] 기존 호스트 테스트 14개 전부 통과 (리팩토링 후)
-- [ ] 신규 테스트 7개 이상 추가
-- [ ] NVS blob 버전 관리 — 구조체 변경 시 안전한 폴백
-- [ ] MAC 주소 대문자 통일
-- [ ] SM Task 스택 4KB 유지 (dump_states가 전역에 직접 쓰므로)
-- [ ] WS 재연결 시 epoch 기반 동기화
+- [x] 기존 호스트 테스트 14개 전부 통과 (리팩토링 후)
+- [x] 신규 테스트 7개 이상 추가
+- [x] NVS blob 버전 관리 — 구조체 변경 시 안전한 폴백
+- [x] MAC 주소 대문자 통일
+- [x] SM Task 스택 4KB 유지 (dump_states가 전역에 직접 쓰므로)
+- [x] WS 재연결 시 epoch 기반 동기화
 
 ## References
 
