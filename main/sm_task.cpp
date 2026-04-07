@@ -108,15 +108,29 @@ static void sm_task(void *arg) {
         while (xQueueReceive(s_queue, &msg, drained == 0 ? pdMS_TO_TICKS(kTickIntervalMs) : 0) == pdTRUE) {
             switch (msg.type) {
             case SmMsgType::Feed:
+                sm.update_device_config(msg.feed.mac, device_config_get(msg.feed.mac));
                 sm.feed(msg.feed.mac, msg.feed.seen, msg.feed.now_ms, msg.feed.rssi);
                 break;
             case SmMsgType::RemoveDevice:
                 sm.remove_device(msg.remove.mac);
                 break;
             case SmMsgType::CreateConfig: {
-                DeviceConfig dev_cfg = {};
-                snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
-                device_config_set(reinterpret_cast<const uint8_t(&)[6]>(msg.create_config.mac), dev_cfg);
+                uint8_t mac[6];
+                std::memcpy(mac, msg.create_config.mac, 6);
+                DeviceConfig dev_cfg = device_config_get(mac);
+
+                if (!device_config_exists(mac)) {
+                    // 최초 페어링이면 기본 설정 + alias를 저장한다.
+                    snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
+                    device_config_set(mac, dev_cfg);
+                    break;
+                }
+
+                // 이미 존재하는 config는 threshold를 보존하고 alias가 비어있을 때만 채운다.
+                if (dev_cfg.alias[0] == '\0' && msg.create_config.alias[0] != '\0') {
+                    snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
+                    device_config_set(mac, dev_cfg);
+                }
                 break;
             }
             }

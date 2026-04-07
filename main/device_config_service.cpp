@@ -93,8 +93,12 @@ static void save_entry_to_nvs(const uint8_t (&mac)[6], const DeviceConfig &cfg) 
     } else if (err != ESP_OK) {
         ESP_LOGE(TAG, "nvs_set_blob failed for %s: %s", key, esp_err_to_name(err));
     } else {
-        nvs_commit(handle);
-        ESP_LOGI(TAG, "Device config saved: %s", key);
+        esp_err_t commit_err = nvs_commit(handle);
+        if (commit_err != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_commit failed for %s: %s", key, esp_err_to_name(commit_err));
+        } else {
+            ESP_LOGI(TAG, "Device config saved: %s", key);
+        }
     }
 
     nvs_close(handle);
@@ -121,11 +125,28 @@ static void delete_entry_from_nvs(const uint8_t (&mac)[6]) {
     } else if (err != ESP_OK) {
         ESP_LOGE(TAG, "nvs_erase_key failed for %s: %s", key, esp_err_to_name(err));
     } else {
-        nvs_commit(handle);
-        ESP_LOGI(TAG, "Device config deleted: %s", key);
+        esp_err_t commit_err = nvs_commit(handle);
+        if (commit_err != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_commit failed for delete %s: %s", key, esp_err_to_name(commit_err));
+        } else {
+            ESP_LOGI(TAG, "Device config deleted: %s", key);
+        }
     }
 
     nvs_close(handle);
+}
+
+static bool erase_key_from_nvs(nvs_handle_t handle, const char *key) {
+    esp_err_t err = nvs_erase_key(handle, key);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return false;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_erase_key failed for %s: %s", key, esp_err_to_name(err));
+        return false;
+    }
+    ESP_LOGI(TAG, "Device config erased during load: %s", key);
+    return true;
 }
 
 // ── init 시 NVS 전체 로드 ────────────────────────────────────────────────────
@@ -136,7 +157,7 @@ static void delete_entry_from_nvs(const uint8_t (&mac)[6]) {
  */
 static void load_all_from_nvs() {
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(kNvsNamespace, NVS_READONLY, &handle);
+    esp_err_t err = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "No device configs in NVS — starting empty");
         return;
@@ -150,6 +171,8 @@ static void load_all_from_nvs() {
     err = nvs_entry_find_in_handle(handle, NVS_TYPE_BLOB, &it);
 
     int loaded = 0;
+    char erase_keys[kMaxEntries][13] = {};
+    int erase_count = 0;
     while (err == ESP_OK) {
         nvs_entry_info_t info;
         nvs_entry_info(it, &info);
@@ -162,38 +185,54 @@ static void load_all_from_nvs() {
             if (get_err == ESP_OK && blob_size == sizeof(DeviceConfig)) {
                 DeviceConfig cfg;
                 get_err = nvs_get_blob(handle, info.key, &cfg, &blob_size);
-                if (get_err == ESP_OK && validate_device_config(cfg)) {
-                    // key → MAC 바이트 변환
-                    uint8_t mac[6];
-                    bool parse_ok = true;
-                    for (int b = 0; b < 6; ++b) {
-                        unsigned int byte_val = 0;
-                        if (sscanf(info.key + b * 2, "%02X", &byte_val) != 1) {
-                            parse_ok = false;
-                            break;
+                if (get_err == ESP_OK) {
+                    bool erase_needed = false;
+                    if (cfg.version != kDeviceConfigVersion) {
+                        ESP_LOGW(TAG, "Old device config version for %s (got %u, expected %u) — erasing",
+                                 info.key, cfg.version, kDeviceConfigVersion);
+                        erase_needed = true;
+                    } else if (!validate_device_config(cfg)) {
+                        ESP_LOGW(TAG, "Invalid device config for %s — erasing", info.key);
+                        erase_needed = true;
+                    } else {
+                        // key → MAC 바이트 변환
+                        uint8_t mac[6];
+                        bool parse_ok = true;
+                        for (int b = 0; b < 6; ++b) {
+                            unsigned int byte_val = 0;
+                            if (sscanf(info.key + b * 2, "%02X", &byte_val) != 1) {
+                                parse_ok = false;
+                                break;
+                            }
+                            mac[b] = static_cast<uint8_t>(byte_val);
                         }
-                        mac[b] = static_cast<uint8_t>(byte_val);
+
+                        if (parse_ok) {
+                            DeviceConfigEntry *slot = find_free_slot();
+                            if (slot) {
+                                memcpy(slot->mac, mac, 6);
+                                slot->config = cfg;
+                                slot->used = true;
+                                ++loaded;
+                            } else {
+                                ESP_LOGW(TAG, "Cache full — skipping %s", info.key);
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "Invalid MAC key in NVS: %s — erasing", info.key);
+                            erase_needed = true;
+                        }
                     }
 
-                    if (parse_ok) {
-                        DeviceConfigEntry *slot = find_free_slot();
-                        if (slot) {
-                            memcpy(slot->mac, mac, 6);
-                            slot->config = cfg;
-                            slot->used = true;
-                            ++loaded;
-                        } else {
-                            ESP_LOGW(TAG, "Cache full — skipping %s", info.key);
-                        }
-                    } else {
-                        ESP_LOGW(TAG, "Invalid MAC key in NVS: %s", info.key);
+                    if (erase_needed && erase_count < kMaxEntries) {
+                        snprintf(erase_keys[erase_count++], sizeof(erase_keys[0]), "%s", info.key);
                     }
-                } else {
-                    ESP_LOGW(TAG, "Invalid device config for %s — skipping", info.key);
                 }
             } else {
-                ESP_LOGW(TAG, "Unexpected blob size for %s (%d bytes) — skipping",
+                ESP_LOGW(TAG, "Unexpected blob size for %s (%d bytes) — erasing",
                          info.key, (int)blob_size);
+                if (erase_count < kMaxEntries) {
+                    snprintf(erase_keys[erase_count++], sizeof(erase_keys[0]), "%s", info.key);
+                }
             }
         }
 
@@ -201,6 +240,17 @@ static void load_all_from_nvs() {
     }
 
     nvs_release_iterator(it);
+
+    bool erased_any = false;
+    for (int i = 0; i < erase_count; ++i) {
+        erased_any = erase_key_from_nvs(handle, erase_keys[i]) || erased_any;
+    }
+    if (erased_any) {
+        esp_err_t commit_err = nvs_commit(handle);
+        if (commit_err != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_commit failed after cleanup: %s", esp_err_to_name(commit_err));
+        }
+    }
     nvs_close(handle);
 
     ESP_LOGI(TAG, "Loaded %d device config(s) from NVS", loaded);
@@ -228,6 +278,13 @@ DeviceConfig device_config_get(const uint8_t (&mac)[6]) {
     return result;
 }
 
+bool device_config_exists(const uint8_t (&mac)[6]) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    bool exists = find_entry(mac) != nullptr;
+    xSemaphoreGive(s_mutex);
+    return exists;
+}
+
 void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     if (!validate_device_config(cfg)) {
         char key[13];
@@ -253,10 +310,9 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     }
     entry->config = cfg;
 
-    xSemaphoreGive(s_mutex);
-
-    // NVS 저장은 mutex 밖에서 (I/O 지연이 길 수 있음)
     save_entry_to_nvs(mac, cfg);
+
+    xSemaphoreGive(s_mutex);
 
     s_changed.store(true);
 }
@@ -270,9 +326,9 @@ void device_config_delete(const uint8_t (&mac)[6]) {
         entry->used = false;
     }
 
-    xSemaphoreGive(s_mutex);
-
     delete_entry_from_nvs(mac);
+
+    xSemaphoreGive(s_mutex);
 
     s_changed.store(true);
 }

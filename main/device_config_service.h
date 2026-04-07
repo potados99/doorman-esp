@@ -27,6 +27,12 @@ void device_config_service_init();
 DeviceConfig device_config_get(const uint8_t (&mac)[6]);
 
 /**
+ * 지정한 MAC 주소의 설정이 캐시에 존재하는지 확인한다.
+ * NVS 조회는 수행하지 않는다.
+ */
+bool device_config_exists(const uint8_t (&mac)[6]);
+
+/**
  * 지정한 MAC 주소의 DeviceConfig를 업데이트하고 NVS에 저장한다.
  *
  * invalid 값은 거부한다. 캐시는 항상 최신 상태를 유지하며,

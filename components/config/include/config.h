@@ -55,8 +55,10 @@ bool validate(const AppConfig &cfg);
  * NVS에 blob 형태로 저장되며, MAC 주소를 키로 사용한다.
  * 구조체 레이아웃이 바뀌면 version을 올리고 마이그레이션 처리 필요.
  */
+static constexpr uint8_t kDeviceConfigVersion = 1;
+
 struct DeviceConfig {
-    uint8_t  version = 1;               // NVS blob 버전
+    uint8_t  version = kDeviceConfigVersion; // NVS blob 버전
     int8_t   rssi_threshold = -70;
     uint8_t  _pad[2] = {};              // 명시적 패딩 (Xtensa 4-byte 정렬)
     uint32_t presence_timeout_ms = 15000;
@@ -69,7 +71,8 @@ static_assert(sizeof(DeviceConfig) == 48, "DeviceConfig layout changed — updat
 /**
  * DeviceConfig 값이 허용 범위 내인지 검증.
  *
- * alias는 알파벳·한글·숫자·공백·하이픈·언더바만 허용.
- * JSON/HTML 위험 문자("  \  <  >) 거부. 빈 문자열은 허용.
+ * alias는 알파벳·한글·숫자·공백·하이픈·언더바와
+ * 실기기 이름에 흔한 일부 문장부호(()+' .)를 허용한다.
+ * JSON 문자열을 깨는 문자("  \ )와 제어문자는 거부. 빈 문자열은 허용.
  */
 bool validate_device_config(const DeviceConfig &cfg);

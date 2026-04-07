@@ -208,6 +208,12 @@ TEST(DeviceConfigTest, AliasWithSpaceHyphenUnderscoreIsAllowed) {
     EXPECT_TRUE(validate_device_config(cfg));
 }
 
+TEST(DeviceConfigTest, AliasWithCommonDeviceNamePunctuationIsAllowed) {
+    DeviceConfig cfg;
+    strncpy(cfg.alias, "John's AirPods (2)+", sizeof(cfg.alias) - 1);
+    EXPECT_TRUE(validate_device_config(cfg));
+}
+
 TEST(DeviceConfigTest, AliasWithDoubleQuoteIsRejected) {
     DeviceConfig cfg;
     strncpy(cfg.alias, "Bad\"Name", sizeof(cfg.alias) - 1);
@@ -229,6 +235,12 @@ TEST(DeviceConfigTest, AliasWithLessThanIsRejected) {
 TEST(DeviceConfigTest, AliasWithGreaterThanIsRejected) {
     DeviceConfig cfg;
     strncpy(cfg.alias, "Bad>Name", sizeof(cfg.alias) - 1);
+    EXPECT_FALSE(validate_device_config(cfg));
+}
+
+TEST(DeviceConfigTest, VersionMismatchIsRejected) {
+    DeviceConfig cfg;
+    cfg.version = 99;
     EXPECT_FALSE(validate_device_config(cfg));
 }
 
