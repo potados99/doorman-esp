@@ -391,7 +391,7 @@ static esp_err_t devices_handler(httpd_req_t *req) {
 }
 ```
 
-**alias 검증**: `validate_device_config()`에서 alias를 알파벳+한글+숫자+공백만 허용, 특수문자(`"`, `\`, `<`, `>` 등) 거부. JSON 이스케이핑 불필요.
+**alias 검증**: `validate_device_config()`에서 alias를 알파벳+한글+숫자+공백+하이픈+언더바만 허용 (BT 기기명에 올 수 있는 문자), `"`, `\`, `<`, `>` 등 JSON/HTML 위험 문자 거부. JSON 이스케이핑 불필요.
 
 #### 4-2. POST /api/devices/config
 
