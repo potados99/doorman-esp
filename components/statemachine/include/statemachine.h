@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <cstring>
 
+/** 최대 추적 가능 기기 수. SM, device_config_service, httpd에서 공유. */
+static constexpr int kMaxTrackedDevices = 15;
+
 /**
  * StateMachine이 tick()에서 반환하는 액션.
  * Unlock이면 문을 열어야 하고, NoOp이면 아무것도 안 한다.
@@ -50,9 +53,9 @@ struct DeviceState {
  */
 class StateMachine {
 public:
-    static constexpr int kMaxDevices = 30;
+    static constexpr int kMaxDevices = kMaxTrackedDevices;
 
-    explicit StateMachine(AppConfig cfg);
+    StateMachine();
 
     /**
      * BT/BLE 스캔 결과를 기록한다.
@@ -83,14 +86,6 @@ public:
     [[nodiscard]] int device_count() const;
 
     /**
-     * 런타임에 전역 설정을 갱신한다.
-     * SM Task가 유일한 소유자이므로 외부 동기화 불필요.
-     * auto_unlock_enabled 토글 등 전역 설정 변경을 반영하기 위해 사용.
-     * 감지 파라미터(rssi_threshold 등)는 dev_config에서 읽으므로 여기서 무시됨.
-     */
-    void update_config(AppConfig cfg);
-
-    /**
      * 특정 MAC 기기의 기기별 설정을 갱신한다.
      * 슬롯이 없으면 생성하지 않음 — feed() 호출 전에 설정해두어도,
      * feed()가 슬롯을 만든 후 update_device_config()가 덮어쓰므로 순서 무관.
@@ -110,11 +105,7 @@ public:
      */
     int dump_states(DeviceState *out, int max) const;
 
-    /** 현재 설정 값을 반환한다. 로깅/디버깅 용도. */
-    [[nodiscard]] const AppConfig &config() const { return config_; }
-
 private:
-    AppConfig config_;
     std::array<DeviceState, kMaxDevices> devices_ = {};
 
     /** MAC으로 기존 슬롯 검색. 없으면 nullptr. */

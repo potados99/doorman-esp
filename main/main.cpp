@@ -130,8 +130,7 @@ extern "C" void app_main(void) {
     control_task_start();
 
     // SM 태스크: StateMachine 소유, BT 이벤트 처리 → Unlock 판단
-    AppConfig cfg = app_config_get();
-    sm_task_start(cfg);
+    sm_task_start();
 
     // BT Manager: 듀얼모드 presence 감지 + 페어링
     ESP_ERROR_CHECK(bt_manager_start());

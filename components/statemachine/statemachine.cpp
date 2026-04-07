@@ -11,7 +11,7 @@ static const char *TAG = "sm";
 
 static const uint32_t kStaleThresholdMs = 86400000;  // 24시간
 
-StateMachine::StateMachine(AppConfig cfg) : config_(cfg) {}
+StateMachine::StateMachine() = default;
 
 void StateMachine::mac_to_str(const uint8_t *mac, char *buf, size_t buf_size) {
     snprintf(buf, buf_size, "%02X:%02X:%02X:%02X:%02X:%02X",
@@ -171,15 +171,6 @@ int StateMachine::device_count() const {
         }
     }
     return count;
-}
-
-void StateMachine::update_config(AppConfig cfg) {
-    config_ = cfg;
-    /**
-     * auto_unlock 토글 시 flood 방지 hack 불필요.
-     * SM은 항상 Unlock을 판정하고, SM Task에서 auto_unlock/유예기간에 따라
-     * Control 전달을 억제하므로, SM 내부 상태는 항상 정상 추적된다.
-     */
 }
 
 void StateMachine::update_device_config(const uint8_t (&mac)[6], const DeviceConfig &cfg) {

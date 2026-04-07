@@ -862,6 +862,10 @@ function closeDetailModal() {
 document.getElementById('detailModal').addEventListener('click', function(e) {
     if (e.target === this) closeDetailModal();
 });
+document.getElementById('detailModal').addEventListener('cancel', function(e) {
+    e.preventDefault();
+    closeDetailModal();
+});
 
 function saveDeviceConfig() {
     if (!currentDetailMac) return;
@@ -869,7 +873,7 @@ function saveDeviceConfig() {
 
     var parts = ['mac=' + encodeURIComponent(currentDetailMac)];
     var alias = document.getElementById('modalAlias').value.trim();
-    if (alias) parts.push('alias=' + encodeURIComponent(alias));
+    parts.push('alias=' + encodeURIComponent(alias));
     var rssi = document.getElementById('modalRssi').value;
     if (rssi !== '') parts.push('rssi=' + encodeURIComponent(rssi));
     var timeout = document.getElementById('modalTimeout').value;

@@ -57,10 +57,3 @@ void device_config_delete(const uint8_t (&mac)[6]);
  */
 int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max);
 
-/**
- * 마지막 device_config_set() / device_config_delete() 이후 변경이 있었는지 확인한다.
- *
- * atomic consume flag: 호출 시 true를 반환하면 flag를 false로 리셋한다.
- * control_task 등에서 주기적으로 호출하여 변경 여부를 감지한다.
- */
-bool device_config_changed();

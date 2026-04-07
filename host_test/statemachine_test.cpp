@@ -3,13 +3,6 @@
 
 class StateMachineTest : public ::testing::Test {
 protected:
-    AppConfig cfg{
-        .presence_timeout_ms = 15000,     // 퇴실 타임아웃 (전역 설정 — SM은 dev_config 우선)
-        .rssi_threshold = -70,
-        .enter_window_ms = 5000,
-        .enter_min_count = 3,
-        .auto_unlock_enabled = true,
-    };
     DeviceConfig dev_cfg{
         .version = 1,
         .rssi_threshold = -70,
@@ -41,7 +34,7 @@ protected:
 
 // 윈도우 내 3회 관측 → tick()에서 재실 전환 → Unlock
 TEST_F(StateMachineTest, FirstDetection) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -49,7 +42,7 @@ TEST_F(StateMachineTest, FirstDetection) {
 
 // 관측 1회만 → tick()에서 진입 안 됨 (NoOp)
 TEST_F(StateMachineTest, InsufficientObservations) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     sm.feed(mac_a, true, 1000, -65);
     EXPECT_EQ(sm.tick(1000), Action::NoOp);
@@ -57,7 +50,7 @@ TEST_F(StateMachineTest, InsufficientObservations) {
 
 // 관측 3회이지만 간격이 윈도우(5초) 초과 → 진입 안 됨
 TEST_F(StateMachineTest, ObservationsOutsideWindow) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     // 3회 관측, 각각 3초 간격 = 총 6초 걸림
     sm.feed(mac_a, true, 1000, -65);
@@ -70,7 +63,7 @@ TEST_F(StateMachineTest, ObservationsOutsideWindow) {
 
 // 재실 후 약한 RSSI feed → 타임아웃 리셋됨 (재실 유지)
 TEST_F(StateMachineTest, StayDetectedWithWeakSignal) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -92,7 +85,7 @@ TEST_F(StateMachineTest, StayDetectedWithWeakSignal) {
 
 // 재실 후 feed 중단 → presence_timeout_ms(15초) 후 퇴실
 TEST_F(StateMachineTest, DepartureTimeout) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -107,7 +100,7 @@ TEST_F(StateMachineTest, DepartureTimeout) {
 
 // 퇴실 후 다시 3회 관측 → 재진입 → Unlock
 TEST_F(StateMachineTest, ReentryAfterDeparture) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -122,7 +115,7 @@ TEST_F(StateMachineTest, ReentryAfterDeparture) {
 
 // 감지 유지 → tick()에서 NoOp
 TEST_F(StateMachineTest, ContinuousPresenceReturnsNoOp) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -137,7 +130,7 @@ TEST_F(StateMachineTest, ContinuousPresenceReturnsNoOp) {
 
 // 미등록 MAC feed → device_count() 증가 (동적 슬롯)
 TEST_F(StateMachineTest, NewMacFeedIncreasesDeviceCount) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     EXPECT_EQ(sm.device_count(), 0);
 
     sm.feed(mac_a, true, 1000, -65);
@@ -151,26 +144,25 @@ TEST_F(StateMachineTest, NewMacFeedIncreasesDeviceCount) {
     EXPECT_EQ(sm.device_count(), 2);
 }
 
-// 슬롯 30개 초과 feed → 무시
+// 슬롯 최대치 초과 feed → 무시
 TEST_F(StateMachineTest, ExceedingMaxDevicesIsIgnored) {
-    StateMachine sm(cfg);
+    StateMachine sm;
 
-    // 30개 슬롯 채우기
     for (int i = 0; i < StateMachine::kMaxDevices; ++i) {
         uint8_t mac[6] = {0x00, 0x00, 0x00, 0x00, 0x00, static_cast<uint8_t>(i)};
         sm.feed(mac, true, 1000, -65);
     }
-    EXPECT_EQ(sm.device_count(), 30);
+    EXPECT_EQ(sm.device_count(), kMaxTrackedDevices);
 
-    // 31번째 MAC은 무시
+    // 초과 MAC은 무시
     uint8_t extra_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     sm.feed(extra_mac, true, 1000, -65);
-    EXPECT_EQ(sm.device_count(), 30);
+    EXPECT_EQ(sm.device_count(), kMaxTrackedDevices);
 }
 
 // 복수 기기 독립성
 TEST_F(StateMachineTest, MultipleDevicesAreIndependent) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     sm.update_device_config(mac_b, dev_cfg);
 
@@ -190,7 +182,7 @@ TEST_F(StateMachineTest, MultipleDevicesAreIndependent) {
 
 // 정확히 presence_timeout_ms 경계에서 미감지 전환
 TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     uint32_t t = feed_enter(sm, mac_a, 1000);
     EXPECT_EQ(sm.tick(t), Action::Unlock);
@@ -204,11 +196,10 @@ TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
     EXPECT_EQ(sm.tick(t2), Action::Unlock);
 }
 
-// SM은 auto_unlock 여부와 무관하게 항상 Unlock을 판정한다 (드라이런).
-// 억제는 SM Task에서 수행. SM 레벨에서는 auto_unlock=false여도 Unlock 반환.
-TEST_F(StateMachineTest, AlwaysReturnsUnlockRegardlessOfAutoUnlockFlag) {
-    cfg.auto_unlock_enabled = false;
-    StateMachine sm(cfg);
+// SM은 항상 Unlock을 판정한다 (드라이런).
+// auto_unlock 억제는 SM Task에서 수행. SM 자체는 조건 없이 Unlock 반환.
+TEST_F(StateMachineTest, AlwaysReturnsUnlock) {
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
 
     uint32_t t = feed_enter(sm, mac_a, 1000);
@@ -217,7 +208,7 @@ TEST_F(StateMachineTest, AlwaysReturnsUnlockRegardlessOfAutoUnlockFlag) {
 
 // 오래된 슬롯 정리
 TEST_F(StateMachineTest, StaleDevicesAreCleaned) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
 
     uint32_t t = feed_enter(sm, mac_a, 1000);
@@ -234,7 +225,7 @@ TEST_F(StateMachineTest, StaleDevicesAreCleaned) {
 
 // RSSI가 threshold 미만이면 미감지 상태에서 진입 판단에 반영 안 함
 TEST_F(StateMachineTest, WeakRssiIgnoredForEntry) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
 
     // 약한 RSSI(-80)로 3회 관측 → 진입 안 됨
@@ -252,7 +243,7 @@ TEST_F(StateMachineTest, WeakRssiIgnoredForEntry) {
 
 // Classic(rssi=0)은 RSSI 필터링 건너뜀
 TEST_F(StateMachineTest, ClassicBypassesRssiFilter) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
 
     // Classic (rssi=0)으로 3회 관측 → 진입
@@ -266,7 +257,7 @@ TEST_F(StateMachineTest, ClassicBypassesRssiFilter) {
 
 // 기기별 RSSI threshold: mac_a(-60), mac_b(-80). rssi=-65 feed → mac_a만 진입
 TEST_F(StateMachineTest, PerDeviceRssiThreshold) {
-    StateMachine sm(cfg);
+    StateMachine sm;
 
     DeviceConfig cfg_a = dev_cfg;
     cfg_a.rssi_threshold = -60;   // 엄격: -65 < -60 → 무시
@@ -298,7 +289,7 @@ TEST_F(StateMachineTest, PerDeviceRssiThreshold) {
 
 // 기기별 타임아웃: mac_a=5000ms, mac_b=20000ms. 10초 경과 → mac_a만 퇴실
 TEST_F(StateMachineTest, PerDeviceTimeout) {
-    StateMachine sm(cfg);
+    StateMachine sm;
 
     DeviceConfig cfg_a = dev_cfg;
     cfg_a.presence_timeout_ms = 5000;    // 짧은 타임아웃
@@ -331,7 +322,7 @@ TEST_F(StateMachineTest, PerDeviceTimeout) {
 
 // 기기별 진입 윈도우: mac_a=2000ms(짧음), mac_b=8000ms(긺). 같은 관측으로 차이 검증
 TEST_F(StateMachineTest, PerDeviceEnterWindow) {
-    StateMachine sm(cfg);
+    StateMachine sm;
 
     DeviceConfig cfg_a = dev_cfg;
     cfg_a.enter_window_ms = 2000;   // 2초 윈도우 — 1초 간격 3회 = 2초 → 통과
@@ -363,7 +354,7 @@ TEST_F(StateMachineTest, PerDeviceEnterWindow) {
 
 // 감지 중 config 변경 시 다음 판단에 새 config 적용
 TEST_F(StateMachineTest, UpdateDeviceConfigMidSession) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);   // timeout=15000
 
     // mac_a 진입
@@ -385,7 +376,7 @@ TEST_F(StateMachineTest, UpdateDeviceConfigMidSession) {
 
 // remove_device 후 device_count 감소, 해당 MAC feed 시 새 슬롯 생성
 TEST_F(StateMachineTest, RemoveDevice) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     sm.update_device_config(mac_b, dev_cfg);
 
@@ -404,7 +395,7 @@ TEST_F(StateMachineTest, RemoveDevice) {
 
 // dump_states가 valid 슬롯만 복사하고 MAC/detected 등 올바른지 검증
 TEST_F(StateMachineTest, DumpStates) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);
     sm.update_device_config(mac_b, dev_cfg);
 
@@ -415,8 +406,8 @@ TEST_F(StateMachineTest, DumpStates) {
     // mac_b는 1회만 feed (미진입)
     sm.feed(mac_b, true, 1000, -65);
 
-    DeviceState out[30] = {};
-    int n = sm.dump_states(out, 30);
+    DeviceState out[kMaxTrackedDevices] = {};
+    int n = sm.dump_states(out, kMaxTrackedDevices);
     EXPECT_EQ(n, 2);
 
     // mac_a 슬롯 확인
@@ -436,7 +427,7 @@ TEST_F(StateMachineTest, DumpStates) {
 
 // update_device_config 없이 feed → 기본 DeviceConfig(기본 생성자)로 판단
 TEST_F(StateMachineTest, DefaultConfigForNewDevice) {
-    StateMachine sm(cfg);
+    StateMachine sm;
     // update_device_config 호출 안 함 → DeviceConfig 기본값 사용
     // 기본값: rssi_threshold=-70, enter_min_count=3, enter_window_ms=5000
 

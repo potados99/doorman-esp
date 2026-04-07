@@ -3,7 +3,6 @@
 #include "config_service.h"
 #include "control_task.h"
 #include "device_config_service.h"
-#include "statemachine.h"
 
 #include <cstring>
 
@@ -56,7 +55,7 @@ static QueueHandle_t s_queue = nullptr;
 
 /** 스냅샷 보호 mutex 및 버퍼. */
 static SemaphoreHandle_t s_snapshot_mutex = nullptr;
-static DeviceState       s_snapshots[30]  = {};
+static DeviceState       s_snapshots[kMaxTrackedDevices] = {};
 static int               s_snapshot_count = 0;
 
 /**
@@ -68,10 +67,8 @@ static int               s_snapshot_count = 0;
  */
 static constexpr uint32_t kStartupGraceMs = 30000;
 
-static void sm_task(void *arg) {
-    auto *cfg = static_cast<AppConfig *>(arg);
-    StateMachine sm(*cfg);
-    delete cfg;
+static void sm_task(void *) {
+    StateMachine sm;
 
     uint32_t start_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
@@ -79,9 +76,9 @@ static void sm_task(void *arg) {
 
     // ── 시작 시퀀스: NVS 기기별 config 전부 로드 → SM에 push ──
     {
-        uint8_t macs[15][6];
-        DeviceConfig cfgs[15];
-        int n = device_config_get_all(macs, cfgs, 15);
+        uint8_t macs[kMaxTrackedDevices][6];
+        DeviceConfig cfgs[kMaxTrackedDevices];
+        int n = device_config_get_all(macs, cfgs, kMaxTrackedDevices);
         for (int i = 0; i < n; i++) {
             sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
         }
@@ -90,19 +87,6 @@ static void sm_task(void *arg) {
 
     SmMsg msg;
     while (true) {
-        sm.update_config(app_config_get());   // 전역 설정 (auto_unlock 등)
-
-        // per-device config 변경 감지 (atomic flag)
-        if (device_config_changed()) {
-            uint8_t macs[15][6];
-            DeviceConfig cfgs[15];
-            int n = device_config_get_all(macs, cfgs, 15);
-            for (int i = 0; i < n; i++) {
-                sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
-            }
-            ESP_LOGI(TAG, "Device configs reloaded (%d)", n);
-        }
-
         // 큐 drain: tick당 최대 16개 dequeue
         int drained = 0;
         while (xQueueReceive(s_queue, &msg, drained == 0 ? pdMS_TO_TICKS(kTickIntervalMs) : 0) == pdTRUE) {
@@ -142,7 +126,7 @@ static void sm_task(void *arg) {
 
         // 스냅샷 갱신: 전역 배열에 직접 dump
         xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
-        s_snapshot_count = sm.dump_states(s_snapshots, 30);
+        s_snapshot_count = sm.dump_states(s_snapshots, kMaxTrackedDevices);
         xSemaphoreGive(s_snapshot_mutex);
 
         /**
@@ -169,25 +153,18 @@ static void sm_task(void *arg) {
     }
 }
 
-void sm_task_start(AppConfig cfg) {
+void sm_task_start() {
     s_queue = xQueueCreate(kQueueDepth, sizeof(SmMsg));
     configASSERT(s_queue);
 
     s_snapshot_mutex = xSemaphoreCreateMutex();
     configASSERT(s_snapshot_mutex);
 
-    /**
-     * cfg를 힙에 복사하여 태스크에 전달.
-     * 태스크 시작 후 sm_task() 내부에서 StateMachine 생성에 사용하고 해제.
-     * 스택 변수를 포인터로 넘기면 호출자 리턴 시 dangling 되므로 힙 복사가 필수.
-     */
-    auto *cfg_copy = new AppConfig(cfg);
-
     BaseType_t ok = xTaskCreatePinnedToCore(
         sm_task,
         "sm_task",
         4096,
-        cfg_copy,
+        nullptr,
         5,
         nullptr,
         tskNO_AFFINITY);

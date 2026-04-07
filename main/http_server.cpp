@@ -507,10 +507,10 @@ static DeviceState *find_snapshot(DeviceState *snaps, int count, const uint8_t *
 static esp_err_t devices_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    uint8_t macs[15][6];
-    int bond_count = bt_get_bonded_devices(macs, 15);
-    DeviceState snapshots[15];
-    int snap_count = sm_get_snapshots(snapshots, 15);
+    uint8_t macs[kMaxTrackedDevices][6];
+    int bond_count = bt_get_bonded_devices(macs, kMaxTrackedDevices);
+    DeviceState snapshots[kMaxTrackedDevices];
+    int snap_count = sm_get_snapshots(snapshots, kMaxTrackedDevices);
 
     httpd_resp_set_type(req, "application/json");
 

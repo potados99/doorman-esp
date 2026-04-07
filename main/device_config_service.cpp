@@ -1,6 +1,5 @@
 #include "device_config_service.h"
 
-#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -29,7 +28,6 @@ struct DeviceConfigEntry {
 
 static DeviceConfigEntry   s_entries[kMaxEntries] = {};
 static SemaphoreHandle_t   s_mutex                = nullptr;
-static std::atomic<bool>   s_changed{false};
 
 // ── 내부 유틸리티 ────────────────────────────────────────────────────────────
 
@@ -314,7 +312,6 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
 
     xSemaphoreGive(s_mutex);
 
-    s_changed.store(true);
 }
 
 void device_config_delete(const uint8_t (&mac)[6]) {
@@ -323,14 +320,12 @@ void device_config_delete(const uint8_t (&mac)[6]) {
     DeviceConfigEntry *entry = find_entry(mac);
     if (entry) {
         memset(entry, 0, sizeof(DeviceConfigEntry));
-        entry->used = false;
     }
 
     delete_entry_from_nvs(mac);
 
     xSemaphoreGive(s_mutex);
 
-    s_changed.store(true);
 }
 
 int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max) {
@@ -349,6 +344,3 @@ int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max) {
     return count;
 }
 
-bool device_config_changed() {
-    return s_changed.exchange(false);
-}

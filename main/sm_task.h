@@ -1,6 +1,5 @@
 #pragma once
 
-#include "config.h"
 #include "statemachine.h"
 
 #include <cstdint>
@@ -17,7 +16,7 @@
  * 스냅샷(s_snapshots)은 s_snapshot_mutex로 보호하여 외부에서 안전하게 읽을 수 있다.
  */
 
-void sm_task_start(AppConfig cfg);
+void sm_task_start();
 
 /**
  * BT 감지 이벤트를 SM 태스크의 피드 큐에 전송한다.

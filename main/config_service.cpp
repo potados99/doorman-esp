@@ -11,11 +11,7 @@ static const char *TAG = "cfg_svc";
 
 /** NVS namespace. door_control과 구분되는 앱 설정 전용 네임스페이스. */
 static constexpr const char *kNvsNamespace = "door";
-static constexpr const char *kKeyTimeout = "timeout";
 static constexpr const char *kKeyAutoUnlock = "auto";
-static constexpr const char *kKeyRssiThresh = "rssi";
-static constexpr const char *kKeyEnterWindow = "ent_win";
-static constexpr const char *kKeyEnterCount = "ent_cnt";
 
 static AppConfig s_config = {};
 static SemaphoreHandle_t s_mutex = nullptr;
@@ -28,44 +24,20 @@ static void load_from_nvs() {
     AppConfig loaded = s_config;
     nvs_handle_t handle;
     if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
-        ESP_LOGI(TAG, "No stored config — using defaults (timeout=%lums)",
-                 (unsigned long)s_config.presence_timeout_ms);
+        ESP_LOGI(TAG, "No stored config — using defaults");
         return;
     }
 
-    uint32_t val;
-    if (nvs_get_u32(handle, kKeyTimeout, &val) == ESP_OK) {
-        loaded.presence_timeout_ms = val;
-    }
     uint8_t auto_val;
     if (nvs_get_u8(handle, kKeyAutoUnlock, &auto_val) == ESP_OK) {
         loaded.auto_unlock_enabled = (auto_val != 0);
     }
-    int8_t rssi_val;
-    if (nvs_get_i8(handle, kKeyRssiThresh, &rssi_val) == ESP_OK) {
-        loaded.rssi_threshold = rssi_val;
-    }
-    uint32_t ent_win;
-    if (nvs_get_u32(handle, kKeyEnterWindow, &ent_win) == ESP_OK) {
-        loaded.enter_window_ms = ent_win;
-    }
-    uint32_t ent_cnt;
-    if (nvs_get_u32(handle, kKeyEnterCount, &ent_cnt) == ESP_OK) {
-        loaded.enter_min_count = ent_cnt;
-    }
 
     nvs_close(handle);
 
-    if (!validate(loaded)) {
-        ESP_LOGW(TAG, "Stored config is invalid — using defaults (timeout=%lums)",
-                 (unsigned long)s_config.presence_timeout_ms);
-        return;
-    }
-
     s_config = loaded;
 
-    ESP_LOGI(TAG, "Config loaded from NVS: timeout=%lums, auto_unlock=%s",
-             (unsigned long)s_config.presence_timeout_ms,
+    ESP_LOGI(TAG, "Config loaded from NVS: auto_unlock=%s",
              s_config.auto_unlock_enabled ? "on" : "off");
 }
 
@@ -78,20 +50,12 @@ static void save_to_nvs() {
         return;
     }
 
-    nvs_set_u32(handle, kKeyTimeout, s_config.presence_timeout_ms);
     nvs_set_u8(handle, kKeyAutoUnlock, s_config.auto_unlock_enabled ? 1 : 0);
-    nvs_set_i8(handle, kKeyRssiThresh, s_config.rssi_threshold);
-    nvs_set_u32(handle, kKeyEnterWindow, s_config.enter_window_ms);
-    nvs_set_u32(handle, kKeyEnterCount, s_config.enter_min_count);
     nvs_commit(handle);
     nvs_close(handle);
 
-    ESP_LOGI(TAG, "Config saved: auto=%s rssi=%d timeout=%lums win=%lums cnt=%lu",
-             s_config.auto_unlock_enabled ? "on" : "off",
-             s_config.rssi_threshold,
-             (unsigned long)s_config.presence_timeout_ms,
-             (unsigned long)s_config.enter_window_ms,
-             (unsigned long)s_config.enter_min_count);
+    ESP_LOGI(TAG, "Config saved: auto=%s",
+             s_config.auto_unlock_enabled ? "on" : "off");
 }
 
 void config_service_init() {
@@ -110,12 +74,6 @@ AppConfig app_config_get() {
 }
 
 void app_config_set(const AppConfig &cfg) {
-    if (!validate(cfg)) {
-        ESP_LOGW(TAG, "Rejected invalid config update: timeout=%lu",
-                 (unsigned long)cfg.presence_timeout_ms);
-        return;
-    }
-
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     std::memcpy(&s_config, &cfg, sizeof(AppConfig));
     save_to_nvs();
