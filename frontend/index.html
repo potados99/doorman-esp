@@ -660,19 +660,19 @@ function updateCardState(mac, state, line) {
         cardState[mac] = 'present';
         detectCount[mac] = null;
         updateCardDisplay(mac);
-    } else if (state === 'absent') {
-        cardState[mac] = 'absent';
-        detectCount[mac] = null;
-        updateCardDisplay(mac);
-    } else if (state === 'unlock') {
-        // burst 이펙트만. 상태는 present로.
-        cardState[mac] = 'present';
         var card = document.getElementById('card-' + macToId(mac));
         if (card) {
             card.classList.remove('burst');
             void card.offsetWidth;
             card.classList.add('burst');
         }
+    } else if (state === 'absent') {
+        cardState[mac] = 'absent';
+        detectCount[mac] = null;
+        updateCardDisplay(mac);
+    } else if (state === 'unlock') {
+        // present 전환은 이미 됐으므로 상태만 맞춤
+        cardState[mac] = 'present';
         updateCardDisplay(mac);
     }
 }
