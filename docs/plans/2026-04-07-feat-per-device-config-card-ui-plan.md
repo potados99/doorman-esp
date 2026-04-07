@@ -78,10 +78,11 @@ struct DeviceConfig {
     uint32_t enter_min_count = 3;
     char     alias[32] = {};            // 별명 (UTF-8, null-terminated)
 };
-// sizeof = 48 bytes (패딩 포함, 컴파일러 독립적)
+static_assert(sizeof(DeviceConfig) == 48, "DeviceConfig layout changed — update NVS version");
 ```
 
 - **명시적 패딩**: `__attribute__((packed))` 대신 수동 패딩. packed는 Xtensa에서 비정렬 접근으로 크래시 위험.
+- **static_assert**: 필드 추가/변경 시 sizeof가 바뀌면 컴파일 실패 → NVS blob 불일치를 빌드 타임에 잡음.
 - `version` 필드: 구조체 첫 바이트에 고정. blob_len 체크 + version 체크 이중 검증. sizeof가 같아도 내부 레이아웃이 다른 경우를 잡음.
 - NVS 읽기: `blob_len != sizeof(DeviceConfig)` 또는 `version != 1` → 기본값 폴백 + 경고 로그.
 
@@ -211,7 +212,9 @@ public:
 //         config_.enter_min_count → dev.dev_config.enter_min_count
 ```
 
-`update_config(AppConfig)`: auto_unlock_enabled 등 전역 설정만 의미.
+`update_config(AppConfig)`: auto_unlock_enabled 등 전역 설정만 의미. SM 내부에서는 감지 파라미터 4개를 더 이상 `config_`에서 읽지 않음.
+
+**AppConfig 마이그레이션**: AppConfig 구조체에서 감지 파라미터 4개를 **제거하지 않는다**. 기존 NVS "door" 키와 config_service 코드를 건드리지 않음. SM이 `config_`의 감지 파라미터를 무시하고 `dev_config`를 쓰는 것으로 충분. 기존 /api/tuning은 Phase 4에서 제거.
 
 #### 2-4. SM 메시지 큐 재설계
 
@@ -232,11 +235,22 @@ static_assert(sizeof(SmMsg) <= 48, "SmMsg too large for queue");
 
 - `Feed`: 기존 sm_feed_queue_send() 래핑
 - `RemoveDevice`: HTTP 기기 삭제 시 SM 슬롯 즉시 정리
-- `CreateConfig`: BT auth_cmpl 콜백에서 BTU task 블로킹 없이 비동기 config 생성
+- `CreateConfig`: BT auth_cmpl 콜백 (Classic + BLE 모두)에서 BTU task 블로킹 없이 비동기 config 생성. BLE는 device_name이 없으므로 alias 빈 문자열로 전송.
+
+**큐 크기**: SmMsg ≤ 48바이트 × 큐 깊이 16 = 768바이트 (기존 FeedMsg 16바이트 × 16 = 256바이트에서 증가). 허용 범위.
 
 #### 2-5. SM Task 루프 변경
 
 ```cpp
+// ── 시작 시퀀스: 메인 루프 진입 전 ──
+// NVS에서 기기별 config 전부 로드 → SM에 push (첫 feed 전에 config 준비)
+{
+    uint8_t macs[15][6]; DeviceConfig cfgs[15];
+    int n = device_config_get_all(macs, cfgs, 15);
+    for (int i = 0; i < n; i++)
+        sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
+}
+
 while (true) {
     sm.update_config(app_config_get());   // 전역 (auto_unlock)
 
@@ -269,6 +283,7 @@ while (true) {
         if (++drained >= 16) break;
     }
 
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
     sm.tick(now_ms);
 
     // 스냅샷 갱신: 전역 배열에 직접 dump (스택 버퍼 없음)
@@ -313,7 +328,7 @@ mutex hold time: ~2KB memcpy = ~5-10us. 2초 tick 대비 0.001%. 문제 없음.
 
 #### 3-1. MAC 대문자 통일
 
-`bt_manager.cpp`의 `bda_to_str()`: `%02x` → `%02X`. 한 군데 수정으로 전체 반영.
+`bt_manager.cpp`의 `bda_to_str()` (라인 317): `%02x` → `%02X`. 한 군데 수정으로 bt 로그 전체 반영. SM의 `mac_to_str()`은 이미 `%02X` (대문자).
 
 #### 3-2. bt 로그 변경
 
@@ -323,7 +338,8 @@ mutex hold time: ~2KB memcpy = ~5-10us. 2초 tick 대비 0.001%. 문제 없음.
 | `:905` Classic probe | `"Classic %s"` | `"%s rssi=0"` |
 | `:869` Classic auth | `"Classic auth success: %s [%s]"` | `"%s paired %s"` |
 
-Classic auth에서 `device_config_set()` 직접 호출 대신 `SmMsg{.type=CreateConfig}` 큐 전송.
+Classic auth에서 `device_config_set()` 직접 호출 대신 `SmMsg{.type=CreateConfig, .create_config={mac, device_name}}` 큐 전송.
+BLE auth(`ESP_GAP_BLE_AUTH_CMPL_EVT`)에서도 동일하게 `SmMsg{.type=CreateConfig, .create_config={identity_mac, ""}}` 전송 (BLE는 device_name 미제공, alias 빈 문자열).
 
 #### 3-3. sm 로그 변경
 
@@ -344,11 +360,11 @@ Classic auth에서 `device_config_set()` 직접 호출 대신 `SmMsg{.type=Creat
 
 ```cpp
 static esp_err_t devices_handler(httpd_req_t *req) {
-    // 데이터 수집
-    uint8_t macs[30][6];
-    int bond_count = bt_get_bonded_devices(macs, 30);
-    DeviceState snapshots[30];
-    int snap_count = sm_get_snapshots(snapshots, 30);
+    // 데이터 수집 (본딩 최대 15, SM 슬롯 최대 30이지만 httpd 스택 8KB 보호)
+    uint8_t macs[15][6];
+    int bond_count = bt_get_bonded_devices(macs, 15);
+    DeviceState snapshots[15];
+    int snap_count = sm_get_snapshots(snapshots, 15);
 
     httpd_resp_set_type(req, "application/json");
 
@@ -388,6 +404,13 @@ static esp_err_t devices_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, "]}");
     httpd_resp_sendstr_chunk(req, nullptr);  // 종료
     return ESP_OK;
+}
+
+// MAC으로 snapshot 선형 탐색 (15대 이하이므로 O(n) 충분)
+static DeviceState *find_snapshot(DeviceState *snaps, int count, const uint8_t *mac) {
+    for (int i = 0; i < count; i++)
+        if (memcmp(snaps[i].mac, mac, 6) == 0) return &snaps[i];
+    return nullptr;  // SM 슬롯 없음 (본딩됨 + 아직 미감지)
 }
 ```
 
