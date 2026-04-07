@@ -518,6 +518,12 @@ void open_pairing_window() {
     s_pairing_mode.store(true);
     s_pairing_start_tick = xTaskGetTickCount();
 
+    /**
+     * scan mode 전환이 진행 중인 read_remote_name page를 취소할 수 있다.
+     * 콜백이 안 오면 이 플래그가 true에 고착되어 프로브가 영구 정지되므로 리셋.
+     */
+    s_classic_probe_in_flight.store(false);
+
     /* BLE: 스캔 중지 → advertising 시작 */
     if (s_ble_scanning.load()) {
         esp_ble_gap_stop_scanning();
