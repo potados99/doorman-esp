@@ -154,7 +154,6 @@
             cursor: pointer;
             transition: box-shadow 0.12s;
             --ripple-color: var(--status-color, #e5e7eb);
-            --ripple-speed: 1.5s;
         }
         .status-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
         .status-card::after {
@@ -166,20 +165,12 @@
             pointer-events: none;
             opacity: 0;
         }
-        .status-card.pulsing::after {
-            animation: cardRipple var(--ripple-speed) ease-out infinite;
-        }
         .status-card.burst::after {
-            animation: burstRipple 0.6s ease-out forwards;
-        }
-        @keyframes cardRipple {
-            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 1; }
-            70%  { box-shadow: 0 0 0 12px var(--ripple-color); opacity: 0; }
-            100% { box-shadow: 0 0 0 12px var(--ripple-color); opacity: 0; }
+            animation: burstRipple 0.45s ease-out forwards;
         }
         @keyframes burstRipple {
-            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 1; }
-            100% { box-shadow: 0 0 0 20px rgba(22,163,74,0); opacity: 0; }
+            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 0.7; }
+            100% { box-shadow: 0 0 0 14px var(--ripple-color); opacity: 0; }
         }
         .card-header {
             display: flex; align-items: center; justify-content: space-between;
@@ -285,9 +276,13 @@
         .dot-wait { background: #f59e0b; }
         .ws-label { font-size: 0.72rem; color: #64748b; }
         .log-close-btn {
-            background: none; border: none; width: auto; margin: 0; padding: 0;
-            font: inherit; font-size: 0.72rem; color: #64748b; cursor: pointer; text-decoration: underline;
+            -webkit-appearance: none; appearance: none;
+            background: #334155; border: none; border-radius: 6px;
+            width: auto; margin: 0; padding: 6px 14px;
+            font: inherit; font-size: 0.78rem; font-weight: 600;
+            color: #e2e8f0; cursor: pointer;
         }
+        .log-close-btn:active { background: #475569; }
         #tagFilters { margin-bottom: 5px; font-size: 0.72rem; color: #94a3b8; }
         #tagFilters label { display: inline; margin-right: 7px; font-weight: normal; font-size: 0.72rem; color: #64748b; }
         #textFilter {
@@ -550,9 +545,7 @@ var pairInfoHtml = '블루투스 설정에서 "Doorman"을 찾아 연결하세�
 
 var STATE_COLORS = {
     absent:    '#e5e7eb',
-    detecting: '#f59e0b',
-    present:   '#16a34a',
-    unlock:    '#16a34a'
+    present:   '#16a34a'
 };
 
 function renderDeviceCards() {
@@ -601,9 +594,12 @@ function updateCardDisplay(mac) {
     var dev = deviceData[mac];
     if (!dev) return;
 
-    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
-    var color = STATE_COLORS[state] || '#e5e7eb';
-    var isStale = state === 'present' && lastBtTime[mac] && (Date.now() - lastBtTime[mac] > 3000);
+    // detecting은 상태가 아니라 이펙트. 색상은 present/absent로만 결정.
+    var rawState = cardState[mac] || (dev.detected ? 'present' : 'absent');
+    var isDetecting = rawState === 'detecting';
+    var baseState = isDetecting ? 'absent' : rawState;
+    var color = STATE_COLORS[baseState] || '#e5e7eb';
+    var isStale = baseState === 'present' && lastBtTime[mac] && (Date.now() - lastBtTime[mac] > 3000);
 
     card.style.setProperty('--status-color', color);
     card.style.setProperty('--ripple-color', color);
@@ -611,18 +607,13 @@ function updateCardDisplay(mac) {
     card.querySelector('.card-mac').textContent = mac;
 
     var statusText = '';
-    if (state === 'absent') {
+    if (isDetecting) {
+        var dc = detectCount[mac];
+        statusText = dc ? '감지 중 ' + dc.cur + '/' + dc.need : '감지 중';
+    } else if (baseState === 'absent') {
         statusText = '미감지';
         card.classList.remove('pulsing');
-    } else if (state === 'detecting') {
-        var dc = detectCount[mac];
-        if (dc) {
-            statusText = '감지 중 ' + dc.cur + '/' + dc.need;
-        } else {
-            statusText = '감지 중';
-        }
-        card.classList.add('pulsing');
-    } else if (state === 'present') {
+    } else if (baseState === 'present') {
         var rssiVisible = dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0;
         var rssiStr = rssiVisible ? ' · RSSI ' + dev.rssi : '';
         var staleStr = isStale ? ' · 통신 끊김' : '';
@@ -652,30 +643,37 @@ function updateCardRssi(mac, rssi) {
 
 function updateCardState(mac, state, line) {
     if (!deviceData[mac]) return;
-    var prev = cardState[mac];
-    cardState[mac] = state;
 
     if (state === 'detecting') {
-        // "detecting N/M" 파싱
+        cardState[mac] = 'detecting';
         var dm = line.match(/detecting (\d+)\/(\d+)/);
         if (dm) detectCount[mac] = { cur: parseInt(dm[1]), need: parseInt(dm[2]) };
         updateCardDisplay(mac);
-    } else if (state === 'present') {
-        detectCount[mac] = null;
-        updateCardDisplay(mac);
-    } else if (state === 'absent') {
-        detectCount[mac] = null;
-        updateCardDisplay(mac);
-    } else if (state === 'unlock') {
-        // burst 리플 트리거
+        // detecting 로그마다 1회 burst
         var card = document.getElementById('card-' + macToId(mac));
         if (card) {
             card.classList.remove('burst');
-            void card.offsetWidth; // reflow
+            void card.offsetWidth;
             card.classList.add('burst');
         }
-        // unlock 후 present 상태 유지
+    } else if (state === 'present') {
         cardState[mac] = 'present';
+        detectCount[mac] = null;
+        updateCardDisplay(mac);
+    } else if (state === 'absent') {
+        cardState[mac] = 'absent';
+        detectCount[mac] = null;
+        updateCardDisplay(mac);
+    } else if (state === 'unlock') {
+        // burst 이펙트만. 상태는 present로.
+        cardState[mac] = 'present';
+        var card = document.getElementById('card-' + macToId(mac));
+        if (card) {
+            card.classList.remove('burst');
+            void card.offsetWidth;
+            card.classList.add('burst');
+        }
+        updateCardDisplay(mac);
     }
 }
 

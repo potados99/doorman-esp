@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Doorman (Preview)</title>
+    <style>
+        .preview-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+            background: #1e40af; color: #fff; text-align: center;
+            padding: 6px; font-size: 0.75rem; font-weight: 600;
+        }
+        body { padding-top: 32px !important; }
+    </style>
+</head>
+<body>
+<div class="preview-banner">PREVIEW MODE — mock 데이터, 서버 연결 없음</div>
+<script>
+/**
+ * Mock layer: XMLHttpRequest와 WebSocket을 가로채서 가짜 응답을 반환한다.
+ * 원본 index.html의 JS를 수정 없이 그대로 실행할 수 있게 해준다.
+ */
+
+var mockAutoUnlock = true;
+var mockPairing = false;
+
+var mockDevices = {
+    auto_unlock: true,
+    devices: [
+        {
+            mac: "AA:BB:CC:DD:EE:01",
+            alias: "potados의 iPhone",
+            detected: true,
+            rssi: -62,
+            last_seen_ms: 5000,
+            config: { rssi_threshold: -70, presence_timeout_ms: 15000, enter_window_ms: 5000, enter_min_count: 3 }
+        },
+        {
+            mac: "11:22:33:44:55:66",
+            alias: "Galaxy S24",
+            detected: false,
+            rssi: 0,
+            last_seen_ms: 120000,
+            config: { rssi_threshold: -75, presence_timeout_ms: 20000, enter_window_ms: 5000, enter_min_count: 3 }
+        },
+        {
+            mac: "DE:AD:BE:EF:CA:FE",
+            alias: "",
+            detected: true,
+            rssi: -58,
+            last_seen_ms: 2000,
+            config: { rssi_threshold: -70, presence_timeout_ms: 15000, enter_window_ms: 5000, enter_min_count: 3 }
+        }
+    ]
+};
+
+// ── Mock XMLHttpRequest ──
+
+var RealXHR = XMLHttpRequest;
+
+function MockXHR() {
+    this._method = '';
+    this._url = '';
+    this._headers = {};
+    this.status = 200;
+    this.responseText = '';
+    this.readyState = 0;
+    this.onload = null;
+    this.onerror = null;
+    this.upload = { onprogress: null };
+}
+
+MockXHR.prototype.open = function(method, url) {
+    this._method = method;
+    this._url = url;
+};
+
+MockXHR.prototype.setRequestHeader = function(k, v) {
+    this._headers[k] = v;
+};
+
+MockXHR.prototype.send = function(body) {
+    var self = this;
+    var url = this._url;
+
+    setTimeout(function() {
+        self.status = 200;
+
+        if (url === '/api/devices') {
+            self.responseText = JSON.stringify(mockDevices);
+        } else if (url === '/api/info') {
+            self.responseText = JSON.stringify({ version: "v1.2.0-preview", date: "2026-04-08", safe_mode: false });
+        } else if (url === '/api/auto-unlock/status') {
+            self.responseText = mockAutoUnlock ? 'enabled' : 'disabled';
+        } else if (url === '/api/auto-unlock/toggle') {
+            mockAutoUnlock = !mockAutoUnlock;
+            self.responseText = mockAutoUnlock ? 'enabled' : 'disabled';
+        } else if (url === '/api/door/open') {
+            self.responseText = 'OK';
+        } else if (url === '/api/ws-token') {
+            self.responseText = 'mock-token-1234';
+        } else if (url === '/api/pairing/status') {
+            self.responseText = mockPairing ? 'on' : 'off';
+        } else if (url === '/api/pairing/toggle') {
+            mockPairing = !mockPairing;
+            self.responseText = mockPairing ? 'on' : 'off';
+        } else if (url === '/api/devices/config') {
+            self.responseText = 'OK';
+        } else if (url === '/api/devices/delete') {
+            // body에서 mac 파싱
+            var m = (body || '').match(/mac=([^&]+)/);
+            if (m) {
+                var mac = decodeURIComponent(m[1]);
+                mockDevices.devices = mockDevices.devices.filter(function(d) { return d.mac !== mac; });
+            }
+            self.responseText = 'OK';
+        } else {
+            self.responseText = 'OK';
+        }
+
+        if (self.onload) self.onload();
+    }, 80);
+};
+
+XMLHttpRequest = MockXHR;
+
+// ── Mock WebSocket (가짜 로그 스트리밍) ──
+
+var mockLogLines = [
+    "I (12345) bt: AA:BB:CC:DD:EE:01 rssi=-62",
+    "I (12346) sm: AA:BB:CC:DD:EE:01 detecting 1/3 5000",
+    "I (12500) bt: AA:BB:CC:DD:EE:01 rssi=-60",
+    "I (12501) sm: AA:BB:CC:DD:EE:01 detecting 2/3 5000",
+    "I (13000) bt: AA:BB:CC:DD:EE:01 rssi=-58",
+    "I (13001) sm: AA:BB:CC:DD:EE:01 detecting 3/3 5000",
+    "I (13002) sm: AA:BB:CC:DD:EE:01 present",
+    "I (13003) sm: AA:BB:CC:DD:EE:01 unlock",
+    "I (13010) sm: Unlock suppressed (grace 17000ms remaining)",
+    "I (15000) bt: DE:AD:BE:EF:CA:FE rssi=-55",
+    "I (15001) sm: DE:AD:BE:EF:CA:FE detecting 1/3 5000",
+    "I (16000) bt: DE:AD:BE:EF:CA:FE rssi=-53",
+    "I (16001) sm: DE:AD:BE:EF:CA:FE detecting 2/3 5000",
+    "I (17000) bt: DE:AD:BE:EF:CA:FE rssi=-50",
+    "I (17001) sm: DE:AD:BE:EF:CA:FE detecting 3/3 5000",
+    "I (17002) sm: DE:AD:BE:EF:CA:FE present",
+    "I (20000) bt: AA:BB:CC:DD:EE:01 rssi=-65",
+    "I (25000) bt: AA:BB:CC:DD:EE:01 rssi=-63",
+    "I (30000) bt: DE:AD:BE:EF:CA:FE rssi=-52",
+    "I (35000) cfg_svc: Config loaded from NVS: auto_unlock=on",
+    "I (35001) dev_cfg_svc: Loaded 3 device config(s) from NVS",
+    "I (40000) bt: 11:22:33:44:55:66 rssi=0",
+    "I (45000) sm: 11:22:33:44:55:66 detecting 1/3 5000",
+];
+
+var RealWebSocket = WebSocket;
+
+function MockWebSocket(url) {
+    this.readyState = 0; // CONNECTING
+    this.onopen = null;
+    this.onmessage = null;
+    this.onclose = null;
+    this.onerror = null;
+
+    var self = this;
+    setTimeout(function() {
+        self.readyState = 1; // OPEN
+        if (self.onopen) self.onopen({});
+
+        // 로그 스트리밍 시작
+        var idx = 0;
+        self._interval = setInterval(function() {
+            if (self.readyState !== 1) return;
+            var line = mockLogLines[idx % mockLogLines.length];
+            // 타임스탬프 갱신
+            var now = Date.now() % 100000;
+            line = line.replace(/\(\d+\)/, '(' + now + ')');
+            if (self.onmessage) self.onmessage({ data: line + '\n' });
+            idx++;
+        }, 1500);
+    }, 200);
+}
+
+MockWebSocket.prototype.close = function() {
+    this.readyState = 3;
+    if (this._interval) clearInterval(this._interval);
+};
+
+MockWebSocket.prototype.send = function() {};
+
+WebSocket = MockWebSocket;
+</script>
+
+<!-- 원본 index.html 내용을 iframe으로 로드 -->
+<script>
+// index.html을 fetch해서 mock layer 위에서 실행
+var r = new RealXHR();
+r.open('GET', 'index.html');
+r.onload = function() {
+    if (r.status !== 200) {
+        document.body.innerHTML += '<p style="color:red;padding:20px;">index.html을 로드할 수 없습니다. preview.html과 같은 폴더에 있어야 합니다.</p>';
+        return;
+    }
+
+    // 원본의 최신 내용을 그대로 반영
+    var html = r.responseText;
+
+    // style 추출
+    var styleMatch = html.match(/<style>([\s\S]*?)<\/style>/);
+    if (styleMatch) {
+        var s = document.createElement('style');
+        s.textContent = styleMatch[1];
+        document.head.appendChild(s);
+    }
+
+    // body 내용 추출 (script 제외)
+    var bodyMatch = html.match(/<body>([\s\S]*?)<script>/);
+    if (bodyMatch) {
+        var container = document.createElement('div');
+        container.innerHTML = bodyMatch[1];
+        document.body.appendChild(container);
+    }
+
+    // script 추출 및 실행
+    var scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+    if (scriptMatch) {
+        var sc = document.createElement('script');
+        sc.textContent = scriptMatch[1];
+        document.body.appendChild(sc);
+    }
+};
+r.send();
+</script>
+</body>
+</html>
