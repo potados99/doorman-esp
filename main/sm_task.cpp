@@ -185,10 +185,14 @@ void sm_task_start() {
     s_snapshot_mutex = xSemaphoreCreateMutex();
     configASSERT(s_snapshot_mutex);
 
+    // sm_task 스택: 기본 4096으로 운영하다가 부팅 직후 BT peer 8개 동시
+    // 감지 burst에서 StateMachine 상태 전이 + ESP_LOGI 포맷 + Unlock suppression
+    // 로그가 겹쳐 canary watchpoint triggered (stack overflow)로 사망한 이력이
+    // 있어 6144로 상향. 증분 2KB는 내부 RAM에서 감수 가능.
     BaseType_t ok = xTaskCreatePinnedToCore(
         sm_task,
         "sm_task",
-        4096,
+        6144,
         nullptr,
         5,
         nullptr,
@@ -232,6 +236,12 @@ void sm_remove_device_queue_send(const uint8_t (&mac)[6]) {
 }
 
 int sm_get_snapshots(DeviceState *out, int max) {
+    // 세이프 모드에서는 sm_task_start가 호출되지 않아 mutex가 nullptr입니다.
+    // HTTP devices_handler가 이 경로를 계속 치므로, null 체크 없이 take하면
+    // assert로 panic → 재부팅 → 세이프모드 → 다시 panic 무한루프에 빠집니다.
+    if (s_snapshot_mutex == nullptr) {
+        return 0;
+    }
     xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
     int n = s_snapshot_count < max ? s_snapshot_count : max;
     memcpy(out, s_snapshots, n * sizeof(DeviceState));

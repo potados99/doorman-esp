@@ -198,11 +198,17 @@
          * dialog는 [open] 속성이 있을 때만 보입니다. flex column으로 잡아
          * head/foot은 고정, body만 스크롤되는 구조로 만듭니다.
          * max-height를 dialog 자체에 두어야 작은 화면에서도 viewport를 넘지 않습니다.
+         *
+         * 100svh (small viewport height): iOS Safari 주소창이 나타나도
+         * 항상 "작은 쪽" 기준으로 계산 → 모달이 주소창 뒤로 잘리지 않습니다.
+         * 100vh는 주소창 유무와 무관하게 "큰 쪽" 기준이라 iOS에서 위아래가
+         * 주소창에 가려지는 문제가 있음. svh 미지원 구형 브라우저는 vh fallback.
          */
         dialog.modal[open] {
             display: flex;
             flex-direction: column;
             max-height: calc(100vh - 32px);
+            max-height: calc(100svh - 32px);
         }
         dialog.modal::backdrop {
             background: rgba(0,0,0,0.35);
