@@ -112,6 +112,55 @@ static void url_decode(char *str) {
     *dst = '\0';
 }
 
+/**
+ * httpd_query_key_value + url_decode 래퍼.
+ *
+ * 반복되는 URL 인코딩 버퍼 부족 버그(alias, mac, ssid, pass, user 등 — 과거
+ * 커밋 0ca7143, eb77a8b 참조)를 원천 차단하기 위한 템플릿 헬퍼입니다.
+ *
+ * 동작:
+ * 1. out 버퍼 크기(N)로부터 필요한 임시 버퍼 크기를 컴파일 시점에 계산합니다.
+ *    URL 인코딩은 1바이트를 %XX로 3바이트로 부풀리므로 (N-1)*3+1 = 3N-2 이면
+ *    out을 꽉 채우는 모든 합법 입력을 받을 수 있고, 여유 2바이트를 더해
+ *    N*3로 간결하게 잡습니다.
+ * 2. httpd_query_key_value로 인코딩된 값을 임시 버퍼에 받습니다.
+ * 3. url_decode로 제자리 디코딩.
+ * 4. 디코딩 결과 길이를 재검증한 뒤 out에 복사하고 null 종료.
+ *
+ * 반환값:
+ * - Ok       : out에 디코딩 값이 복사되고 null 종료됨.
+ * - NotFound : body에 해당 key가 없음 (optional 필드 분기용). out 미변경.
+ * - TooLong  : 인코딩된 값이 버퍼 초과, 또는 디코딩 후 out 크기 초과.
+ *              out 미변경.
+ *
+ * 사용 예:
+ *   char mac_str[24] = {};
+ *   if (query_and_decode(body, "mac", mac_str) != QueryResult::Ok) {
+ *       return send_text(req, "400 Bad Request", "mac parameter is required");
+ *   }
+ */
+enum class QueryResult { Ok, NotFound, TooLong };
+
+template <size_t N>
+static QueryResult query_and_decode(const char *body, const char *key,
+                                     char (&out)[N]) {
+    static_assert(N >= 2, "out buffer must hold at least 1 char + null");
+
+    // 인코딩 확장 계수 3 + 약간의 여유. 컴파일 시 상수라 스택 크기도 고정.
+    char tmp[N * 3] = {};
+    esp_err_t err = httpd_query_key_value(body, key, tmp, sizeof(tmp));
+    if (err == ESP_ERR_NOT_FOUND) return QueryResult::NotFound;
+    if (err != ESP_OK) return QueryResult::TooLong;  // TRUNC 포함
+
+    url_decode(tmp);
+    size_t len = strnlen(tmp, sizeof(tmp));
+    if (len >= N) return QueryResult::TooLong;
+
+    memcpy(out, tmp, len);
+    out[len] = '\0';
+    return QueryResult::Ok;
+}
+
 // Read POST body into a stack buffer. Returns length or -1.
 static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
     if (req->content_len <= 0 || req->content_len >= static_cast<int>(buf_size)) {
@@ -230,22 +279,23 @@ static esp_err_t setup_page_handler(httpd_req_t *req) {
 }
 
 static esp_err_t wifi_setup_handler(httpd_req_t *req) {
-    // URL 인코딩 시 SSID(최대 32B)→96B, pass(최대 63B)→189B + 필드명/구분자.
-    // body 256B로는 특수문자 포함 시 초과. 512B로 상향.
+    // SSID/pass 인코딩 값이 들어올 수 있으므로 body는 넉넉히 512.
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    // 인코딩된 값을 받을 버퍼도 raw 최대의 3배 + 1.
-    char ssid[32 * 3 + 1] = {};
-    char pass[63 * 3 + 1] = {};
-    if (httpd_query_key_value(body, "ssid", ssid, sizeof(ssid)) != ESP_OK || ssid[0] == '\0') {
+    char ssid[33] = {};  // WPA SSID max 32 + null
+    char pass[64] = {};  // WPA password max 63 + null
+    QueryResult qr_ssid = query_and_decode(body, "ssid", ssid);
+    if (qr_ssid != QueryResult::Ok || ssid[0] == '\0') {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
-    httpd_query_key_value(body, "pass", pass, sizeof(pass)); // password can be empty
-    url_decode(ssid);
-    url_decode(pass);
+    QueryResult qr_pass = query_and_decode(body, "pass", pass);
+    if (qr_pass == QueryResult::TooLong) {
+        return send_text(req, "400 Bad Request", "password too long");
+    }
+    // NotFound 또는 Ok 모두 허용 (오픈 네트워크용 빈 비번).
 
     nvs_save_wifi(ssid, pass);
     send_text(req, "200 OK", "OK");
@@ -275,23 +325,19 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
 static esp_err_t auth_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    // URL 인코딩 시 user(최대 31B)→93B, pass(최대 63B)→189B + 필드명/구분자.
-    // body 512B로 상향하여 인코딩된 값을 수용합니다.
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char user[31 * 3 + 1] = {};
-    char pass[63 * 3 + 1] = {};
-    if (httpd_query_key_value(body, "user", user, sizeof(user)) != ESP_OK || user[0] == '\0') {
+    char user[32] = {};  // raw max 31 + null
+    char pass[64] = {};  // raw max 63 + null
+    if (query_and_decode(body, "user", user) != QueryResult::Ok || user[0] == '\0') {
         return send_text(req, "400 Bad Request", "Username is required");
     }
-    if (httpd_query_key_value(body, "pass", pass, sizeof(pass)) != ESP_OK || pass[0] == '\0') {
+    if (query_and_decode(body, "pass", pass) != QueryResult::Ok || pass[0] == '\0') {
         return send_text(req, "400 Bad Request", "Password is required");
     }
-    url_decode(user);
-    url_decode(pass);
 
     nvs_save_auth(user, pass);
     return send_text(req, "200 OK", "OK");
@@ -300,20 +346,19 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
 static esp_err_t wifi_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    // URL 인코딩 대응: wifi_setup_handler와 동일한 버퍼 정책.
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char ssid[32 * 3 + 1] = {};
-    char pass[63 * 3 + 1] = {};
-    if (httpd_query_key_value(body, "ssid", ssid, sizeof(ssid)) != ESP_OK || ssid[0] == '\0') {
+    char ssid[33] = {};
+    char pass[64] = {};
+    if (query_and_decode(body, "ssid", ssid) != QueryResult::Ok || ssid[0] == '\0') {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
-    httpd_query_key_value(body, "pass", pass, sizeof(pass));
-    url_decode(ssid);
-    url_decode(pass);
+    if (query_and_decode(body, "pass", pass) == QueryResult::TooLong) {
+        return send_text(req, "400 Bad Request", "password too long");
+    }
 
     nvs_save_wifi(ssid, pass);
     send_text(req, "200 OK", "OK");
@@ -622,14 +667,10 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    // URL 인코딩 시 콜론 5개가 %3A로 부풀어 최대 33바이트(27 + null 여유).
-    // 24바이트 버퍼로는 ESP_ERR_HTTPD_RESULT_TRUNC가 반환되어 "mac required"로
-    // 잘못 응답하던 버그가 있었음. devices_config_handler와 동일하게 36으로.
-    char mac_str[36] = {};
-    if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
+    char mac_str[24] = {};  // raw max "AA:BB:CC:DD:EE:FF" = 17 + null
+    if (query_and_decode(body, "mac", mac_str) != QueryResult::Ok || mac_str[0] == '\0') {
         return send_text(req, "400 Bad Request", "mac parameter is required");
     }
-    url_decode(mac_str);
 
     /* MAC 문자열 파싱 (AA:BB:CC:DD:EE:FF) */
     uint8_t mac[6] = {};
@@ -655,12 +696,10 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    // MAC 파싱 (URL 인코딩 시 AA%3ABB%3A... = 최대 33바이트)
-    char mac_str[36] = {};
-    if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
+    char mac_str[24] = {};  // raw max "AA:BB:CC:DD:EE:FF" = 17 + null
+    if (query_and_decode(body, "mac", mac_str) != QueryResult::Ok || mac_str[0] == '\0') {
         return send_text(req, "400 Bad Request", "mac parameter is required");
     }
-    url_decode(mac_str);
 
     uint8_t mac[6] = {};
     unsigned int m[6] = {};
@@ -674,26 +713,15 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
     DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
 
     char val[64] = {};
-    {
-        // URL 인코딩 시 한글 1글자가 9바이트(%XX%XX%XX)로 부풀어서
-        // 디코딩 전 버퍼는 cfg.alias 크기의 최소 3배가 필요합니다.
-        char alias_val[sizeof(cfg.alias) * 3 + 1] = {};
-        esp_err_t qerr = httpd_query_key_value(body, "alias", alias_val, sizeof(alias_val));
-        if (qerr == ESP_OK) {
-            url_decode(alias_val);
-            size_t decoded_len = strlen(alias_val);
-            // 디코딩 결과가 버퍼(31바이트, null 포함 32) 초과면 명시적으로 거부합니다.
-            // 조용히 자르면 한글 UTF-8 경계 깨짐 + 사용자 의도와 다른 값이 저장됩니다.
-            if (decoded_len >= sizeof(cfg.alias)) {
-                return send_text(req, "400 Bad Request", "alias too long (max 31 bytes)");
-            }
-            memcpy(cfg.alias, alias_val, decoded_len);
-            cfg.alias[decoded_len] = '\0';
-        } else if (qerr == ESP_ERR_HTTPD_RESULT_TRUNC) {
-            // 인코딩된 길이가 97바이트 초과 — 한글 11자 이상이거나 비정상 입력.
+    // alias는 optional — 미포함이면 기존 값 유지, 길이 초과면 400.
+    // query_and_decode 내부에서 UTF-8 경계 무결성은 validate_device_config가
+    // 이후 config.cpp:is_alias_utf8_well_formed로 최종 검증합니다.
+    switch (query_and_decode(body, "alias", cfg.alias)) {
+        case QueryResult::TooLong:
             return send_text(req, "400 Bad Request", "alias too long (max 31 bytes)");
-        }
-        // ESP_ERR_NOT_FOUND: alias 필드 미포함 → 기존 값 유지.
+        case QueryResult::NotFound:  // 기존 값 유지
+        case QueryResult::Ok:
+            break;
     }
     if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
         cfg.rssi_threshold = (int8_t)atoi(val);
