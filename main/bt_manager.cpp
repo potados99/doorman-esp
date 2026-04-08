@@ -595,6 +595,49 @@ static void neg_cache_add(const uint8_t *bda) {
 }
 
 /**
+ * 연결 주소(RPA일 수 있음)로부터 peer 캐시의 identity address를 찾습니다.
+ *
+ * 페어링 완료 직후 `auth_cmpl.bd_addr`를 peer 캐시의 `identity_addr` 또는
+ * IRK resolve를 통해 static identity에 매핑합니다. 성공하면 `out_identity`에
+ * 실제 identity 주소를 채우고 true를 반환합니다.
+ *
+ * 호출 전에 반드시 `refresh_ble_bond_cache()`로 peer 캐시가 최신 상태여야
+ * 합니다. 크리티컬 섹션 안에서 AES 연산을 피하도록 먼저 스냅샷을 뜬 뒤
+ * 섹션 밖에서 resolve합니다 (update_ble_presence와 동일 패턴).
+ */
+static bool find_identity_for_connected_addr(const uint8_t *conn_addr,
+                                               uint8_t out_identity[ESP_BD_ADDR_LEN]) {
+    BlePeer peers_snap[kMaxBleBondedDevices] = {};
+    int peer_count = 0;
+
+    taskENTER_CRITICAL(&s_state_lock);
+    peer_count = s_ble_peer_count;
+    if (peer_count > kMaxBleBondedDevices) {
+        peer_count = kMaxBleBondedDevices;
+    }
+    std::memcpy(peers_snap, s_ble_peers, sizeof(peers_snap));
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    for (int i = 0; i < peer_count; ++i) {
+        if (!peers_snap[i].valid) continue;
+
+        /* Public address peer, 또는 RPA가 아닌 연결 — identity와 직접 일치 */
+        if (std::memcmp(conn_addr, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0) {
+            std::memcpy(out_identity, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN);
+            return true;
+        }
+
+        /* RPA 연결 — IRK로 resolve 시도 */
+        if (peers_snap[i].has_identity_key &&
+            resolve_rpa_with_irk(conn_addr, peers_snap[i].irk)) {
+            std::memcpy(out_identity, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN);
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * BLE 스캔 결과에서 본딩된 기기를 식별하고 SM Task에 피드합니다.
  *
  * RPA resolve 성공 = 감지됨 → sm_feed_queue_send(mac, true, now_ms)
@@ -1074,24 +1117,47 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
         break;
 
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
-        char addr_str[18] = {};
-        bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
-        ESP_LOGI(kTag, "BLE auth complete: success=%s addr=%s addr_type=%u",
-                 param->ble_security.auth_cmpl.success ? "yes" : "no",
-                 addr_str,
-                 param->ble_security.auth_cmpl.addr_type);
+        /**
+         * identity 주소를 확보하기 위해 먼저 bond cache를 갱신합니다.
+         * 이 순서가 중요합니다 — auth_cmpl.bd_addr는 연결 순간의 주소(RPA일 수
+         * 있음)인데, bond cache에서 IRK + static_addr를 읽고 resolve하면 실제
+         * identity를 얻을 수 있습니다. 이걸 로그·config 저장·웹 알림에 사용하면:
+         *   (1) 페어링 모달이 RPA 대신 identity MAC을 표시 (UX 일치)
+         *   (2) NVS에 RPA 키로 고아 config가 저장되는 걸 방지
+         *   (3) 이후 스캔 feed가 쓰는 identity와 키가 일치 → config join 성공
+         */
+        refresh_ble_bond_cache();
+
         if (param->ble_security.auth_cmpl.success) {
-            {
-                const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*param->ble_security.auth_cmpl.bd_addr);
-                if (!device_config_exists(mac)) {
-                    DeviceConfig cfg = {};
-                    device_config_set(mac, cfg);
-                }
+            uint8_t identity[ESP_BD_ADDR_LEN] = {};
+            bool have_identity = find_identity_for_connected_addr(
+                param->ble_security.auth_cmpl.bd_addr, identity);
+
+            /* identity resolve 실패 시 원래 conn addr로 fallback (기존 동작) */
+            const uint8_t *use_addr = have_identity
+                ? identity
+                : param->ble_security.auth_cmpl.bd_addr;
+
+            char addr_str[18] = {};
+            bda_to_str(use_addr, addr_str, sizeof(addr_str));
+            ESP_LOGI(kTag, "BLE auth complete: success=yes addr=%s addr_type=%u%s",
+                     addr_str,
+                     param->ble_security.auth_cmpl.addr_type,
+                     have_identity ? "" : " (identity unresolved — using conn addr)");
+
+            const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*use_addr);
+            if (!device_config_exists(mac)) {
+                DeviceConfig cfg = {};
+                device_config_set(mac, cfg);
             }
         } else {
-            ESP_LOGI(kTag, "BLE pairing failed, reason=0x%x", param->ble_security.auth_cmpl.fail_reason);
+            char addr_str[18] = {};
+            bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
+            ESP_LOGI(kTag, "BLE auth complete: success=no addr=%s addr_type=%u",
+                     addr_str, param->ble_security.auth_cmpl.addr_type);
+            ESP_LOGI(kTag, "BLE pairing failed, reason=0x%x",
+                     param->ble_security.auth_cmpl.fail_reason);
         }
-        refresh_ble_bond_cache();
         break;
     }
 
