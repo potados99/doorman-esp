@@ -180,14 +180,6 @@
         .card-alias { font-size: 0.9rem; font-weight: 600; color: #111; }
         .card-mac { font-size: 0.7rem; color: #9ca3af; font-family: 'Menlo', 'Consolas', monospace; }
         .card-status { font-size: 0.78rem; color: #6b7280; }
-        .status-card.stale {
-            border-left-color: #14532d;
-            box-shadow: inset 0 0 0 1px rgba(20, 83, 45, 0.08);
-        }
-        .status-card.stale .card-status {
-            color: #14532d;
-            font-weight: 600;
-        }
 
         /* ── Empty state ── */
         .empty-state {
@@ -598,12 +590,11 @@ function updateCardDisplay(mac) {
     var dev = deviceData[mac];
     if (!dev) return;
 
-    // detecting은 상태가 아니라 이펙트. 색상은 present/absent로만 결정.
+    // detecting은 상태가 아니라 이펙트. 색상은 present/absent 두 가지만.
     var rawState = cardState[mac] || (dev.detected ? 'present' : 'absent');
     var isDetecting = rawState === 'detecting';
     var baseState = isDetecting ? 'absent' : rawState;
     var color = STATE_COLORS[baseState] || '#e5e7eb';
-    var isStale = baseState === 'present' && lastBtTime[mac] && (Date.now() - lastBtTime[mac] > 3000);
 
     card.style.setProperty('--status-color', color);
     card.style.setProperty('--ripple-color', color);
@@ -616,19 +607,18 @@ function updateCardDisplay(mac) {
         statusText = dc ? '감지 중 ' + dc.cur + '/' + dc.need : '감지 중';
     } else if (baseState === 'absent') {
         statusText = '미감지';
-        card.classList.remove('pulsing');
     } else if (baseState === 'present') {
         var rssiVisible = dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0;
         var rssiStr = rssiVisible ? ' · RSSI ' + dev.rssi : '';
-        var staleStr = isStale ? ' · 통신 끊김' : '';
-        statusText = '재실' + rssiStr + staleStr;
-        card.classList.remove('pulsing');
+        var agoStr = '';
+        if (lastBtTime[mac]) {
+            var sec = Math.floor((Date.now() - lastBtTime[mac]) / 1000);
+            if (sec >= 1) agoStr = ' · ' + sec + '초 전';
+        }
+        statusText = '재실' + rssiStr + agoStr;
     }
 
-    var statusEl = card.querySelector('.card-status');
-    statusEl.textContent = statusText;
-    statusEl.className = 'card-status' + (isStale ? ' stale' : '');
-    card.classList.toggle('stale', isStale);
+    card.querySelector('.card-status').textContent = statusText;
 }
 
 function updateCardRssi(mac, rssi) {
@@ -637,8 +627,6 @@ function updateCardRssi(mac, rssi) {
     lastBtTime[mac] = Date.now();
     var card = document.getElementById('card-' + macToId(mac));
     if (!card) return;
-    card.classList.remove('stale');
-    card.querySelector('.card-status').classList.remove('stale');
     // present 상태면 RSSI 갱신 표시
     if (cardState[mac] === 'present') {
         updateCardDisplay(mac);
@@ -803,16 +791,13 @@ function syncPairingState(wantOn, seq, cb) {
     statusXhr.send(null);
 }
 
-// stale 감지: present 카드에서 2초마다 확인, 3초 무응답 → stale
+// 매초 카드 표시 갱신 ("N초 전" 타이머 업데이트)
 setInterval(function() {
     var macs = Object.keys(deviceData);
     for (var i = 0; i < macs.length; i++) {
-        var mac = macs[i];
-        var card = document.getElementById('card-' + macToId(mac));
-        if (!card) continue;
-        updateCardDisplay(mac);
+        updateCardDisplay(macs[i]);
     }
-}, 2000);
+}, 1000);
 
 /* ──────────────────────────────────────────
    기기 상세 모달
@@ -829,14 +814,13 @@ function openDetailModal(mac) {
     // 상태 텍스트
     var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
     var stateLabel = state === 'present' ? '재실' : (state === 'detecting' ? '감지 중' : '미감지');
-    var stalePart = (state === 'present' && lastBtTime[mac] && (Date.now() - lastBtTime[mac] > 3000)) ? ' · 통신 끊김' : '';
     var rssiVisible = (dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0);
     var rssiPart = rssiVisible ? ' · RSSI ' + dev.rssi : '';
     var timePart = '';
     if (lastBtTime[mac]) {
         timePart = ' · ' + relativeTime(Date.now() - lastBtTime[mac]);
     }
-    document.getElementById('modalStatusText').textContent = stateLabel + rssiPart + stalePart + timePart;
+    document.getElementById('modalStatusText').textContent = stateLabel + rssiPart + timePart;
 
     // 폼 채우기
     document.getElementById('modalAlias').value = dev.alias || '';
