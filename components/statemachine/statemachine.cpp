@@ -45,7 +45,7 @@ DeviceState *StateMachine::find_or_create(const uint8_t (&mac)[6]) {
 
 void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int8_t rssi) {
     if (!seen) {
-        return;  // 현재 seen=false는 사용하지 않음 (타임아웃으로 처리)
+        return;  // 현재 seen=false는 사용하지 않습니다 (타임아웃으로 처리)
     }
 
     DeviceState *dev = find_or_create(mac);
@@ -55,7 +55,7 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
 
     /**
      * 이미 재실 → RSSI 상관없이 last_seen만 갱신 (재실 유지).
-     * 약한 신호라도 살아있으면 타임아웃을 리셋한다.
+     * 약한 신호라도 살아있으면 타임아웃을 리셋합니다.
      */
     if (dev->detected) {
         dev->last_seen_ms = now_ms;
@@ -64,9 +64,9 @@ void StateMachine::feed(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
 
     /**
      * 미감지 상태 → RSSI 필터링 적용 (진입 판단).
-     * rssi != 0이면 BLE 신호이므로 임계값 체크.
-     * rssi == 0이면 Classic (RSSI 없음) → 필터링 건너뜀.
-     * 예: rssi=-75, threshold=-70 → -75 < -70 → 신호 약함 → 무시.
+     * rssi != 0이면 BLE 신호이므로 임계값을 체크합니다.
+     * rssi == 0이면 Classic (RSSI 없음) → 필터링을 건너뜁니다.
+     * 예: rssi=-75, threshold=-70 → -75 < -70 → 신호 약함 → 무시합니다.
      */
     if (rssi != 0 && rssi < dev->dev_config.rssi_threshold) {
         return;
@@ -175,10 +175,10 @@ int StateMachine::device_count() const {
 
 void StateMachine::update_device_config(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     /**
-     * 슬롯이 이미 있으면 dev_config만 교체.
-     * 없으면 새 슬롯을 만들어 config를 적용.
+     * 슬롯이 이미 있으면 dev_config만 교체합니다.
+     * 없으면 새 슬롯을 만들어 config를 적용합니다.
      * 이렇게 해야 sm_task가 시작 시 NVS config를 push할 때
-     * 슬롯이 미리 준비되어, 이후 feed()가 동일한 슬롯을 사용하게 된다.
+     * 슬롯이 미리 준비되어, 이후 feed()가 동일한 슬롯을 사용하게 됩니다.
      */
     DeviceState *dev = find_or_create(mac);
     if (dev) {

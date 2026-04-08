@@ -136,29 +136,29 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size) {
 // ── WebSocket 로그 스트리밍 ──
 
 /**
- * Ring Buffer: esp_log → WS 브리지.
+ * Ring Buffer: esp_log → WS 브리지입니다.
  *
- * custom_vprintf가 모든 로그를 시리얼 + Ring Buffer에 동시 출력한다.
- * WS sender 태스크가 Ring Buffer에서 읽어서 연결된 WS 클라이언트에 전송.
- * 8KB면 약 50~100줄의 로그를 버퍼링 가능.
+ * custom_vprintf가 모든 로그를 시리얼 + Ring Buffer에 동시 출력합니다.
+ * WS sender 태스크가 Ring Buffer에서 읽어서 연결된 WS 클라이언트에 전송합니다.
+ * 8KB면 약 50~100줄의 로그를 버퍼링 가능합니다.
  */
 static RingbufHandle_t s_log_ringbuf = nullptr;
 static vprintf_like_t s_original_vprintf = nullptr;
 static httpd_handle_t s_server = nullptr;
 
-/** WS 인증 토큰. 부팅마다 esp_random()으로 생성. RAM만. */
+/** WS 인증 토큰입니다. 부팅마다 esp_random()으로 생성합니다. RAM에만 저장됩니다. */
 static char s_ws_token[17] = {};
-/** 동시 WS 클라이언트 최대 수. httpd 소켓 풀(기본 7)에서 API용을 빼면 4~5가 현실적. */
+/** 동시 WS 클라이언트 최대 수입니다. httpd 소켓 풀(기본 7)에서 API용을 빼면 4~5가 현실적입니다. */
 static constexpr int kMaxWsClients = 5;
 static int s_ws_fds[kMaxWsClients] = {-1, -1, -1, -1, -1};
 static portMUX_TYPE s_ws_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /**
- * 커스텀 vprintf: 시리얼 출력 + Ring Buffer 복사.
+ * 커스텀 vprintf: 시리얼 출력 + Ring Buffer 복사입니다.
  *
- * esp_log_set_vprintf()로 등록되어 ESP_LOGx 매크로 호출 시 실행된다.
- * Ring Buffer에 넣을 때 ISR 컨텍스트가 아니므로 xRingbufferSend 사용.
- * Ring Buffer가 가득 차면 조용히 드랍 (WS 클라이언트가 없거나 느릴 때).
+ * esp_log_set_vprintf()로 등록되어 ESP_LOGx 매크로 호출 시 실행됩니다.
+ * Ring Buffer에 넣을 때 ISR 컨텍스트가 아니므로 xRingbufferSend를 사용합니다.
+ * Ring Buffer가 가득 차면 조용히 드랍합니다 (WS 클라이언트가 없거나 느릴 때).
  */
 static int custom_vprintf(const char *fmt, va_list args) {
     /* Ring Buffer용 복사를 먼저 수행 (args 소비 전) */
@@ -181,11 +181,11 @@ static int custom_vprintf(const char *fmt, va_list args) {
 }
 
 /**
- * WS sender 태스크: Ring Buffer에서 로그를 읽어 WS 클라이언트에 전송.
+ * WS sender 태스크: Ring Buffer에서 로그를 읽어 WS 클라이언트에 전송합니다.
  *
- * 100ms 주기로 Ring Buffer를 폴링하여 데이터가 있으면 WS frame으로 보낸다.
- * httpd_ws_send_frame_async()를 사용하여 httpd 태스크와 동기화.
- * WS 연결이 없으면 Ring Buffer 데이터를 소비만 하고 버린다.
+ * 100ms 주기로 Ring Buffer를 폴링하여 데이터가 있으면 WS frame으로 보냅니다.
+ * httpd_ws_send_frame_async()를 사용하여 httpd 태스크와 동기화합니다.
+ * WS 연결이 없으면 Ring Buffer 데이터를 소비만 하고 버립니다.
  */
 static void ws_sender_task(void *) {
     while (true) {
@@ -424,7 +424,7 @@ cleanup:
     return result == ESP_OK ? ESP_FAIL : result;
 }
 
-/** 페어링 토글. 꺼져있으면 켜고, 켜져있으면 끈다. */
+/** 페어링 토글입니다. 꺼져있으면 켜고, 켜져있으면 끕니다. */
 static esp_err_t pairing_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
     if (bt_is_pairing()) {
@@ -435,13 +435,13 @@ static esp_err_t pairing_toggle_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", "on");
 }
 
-/** 페어링 현재 상태 조회. */
+/** 페어링 현재 상태를 조회합니다. */
 static esp_err_t pairing_status_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
     return send_text(req, "200 OK", bt_is_pairing() ? "on" : "off");
 }
 
-/** 시스템 정보 조회. 빌드 버전 + 런타임 상태(세이프 모드 등) JSON 반환. */
+/** 시스템 정보를 조회합니다. 빌드 버전 + 런타임 상태(세이프 모드 등) JSON 반환합니다. */
 extern bool is_safe_mode();
 
 static esp_err_t info_handler(httpd_req_t *req) {
@@ -489,7 +489,7 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-/** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장한다. */
+/** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장합니다. */
 static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
@@ -511,8 +511,8 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
 }
 
 /**
- * 본딩된 기기 목록 + 기기별 config + SM 스냅샷을 JSON으로 반환.
- * snprintf + chunked 전송, 힙 할당 없음.
+ * 본딩된 기기 목록 + 기기별 config + SM 스냅샷을 JSON으로 반환합니다.
+ * snprintf + chunked 전송, 힙 할당 없습니다.
  */
 static DeviceState *find_snapshot(DeviceState *snaps, int count, const uint8_t *mac) {
     for (int i = 0; i < count; i++)
@@ -650,15 +650,15 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
 
 /**
  * WebSocket 핸들러. 최대 kMaxWsClients명 동시 접속.
- * 연결 시: 빈 슬롯에 fd 추가. ws_sender_task가 전체 브로드캐스트.
- * 연결 종료: send 실패 시 ws_sender_task가 슬롯 정리.
+ * 연결 시: 빈 슬롯에 fd를 추가합니다. ws_sender_task가 전체 브로드캐스트.
+ * 연결 종료: send 실패 시 ws_sender_task가 슬롯을 정리합니다.
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
         /**
-         * WS 핸드셰이크 시 query param으로 토큰 검증.
-         * 브라우저의 new WebSocket()은 커스텀 헤더를 못 보내므로
-         * Basic Auth 대신 토큰으로 인증.
+         * WS 핸드셰이크 시 query param으로 토큰을 검증합니다.
+         * 브라우저의 new WebSocket()은 커스텀 헤더를 보낼 수 없으므로
+         * Basic Auth 대신 토큰으로 인증합니다.
          */
         char query[64] = {};
         char token[24] = {};
@@ -698,7 +698,7 @@ static esp_err_t ws_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    /* 클라이언트에서 데이터가 오면 읽어서 버린다 (단방향 스트리밍) */
+    /* 클라이언트에서 데이터가 오면 읽어서 버립니다 (단방향 스트리밍) */
     httpd_ws_frame_t pkt = {};
     pkt.type = HTTPD_WS_TYPE_TEXT;
     esp_err_t ret = httpd_ws_recv_frame(req, &pkt, 0);
@@ -745,8 +745,8 @@ static bool register_routes(httpd_handle_t server, const Route *routes, size_t c
 // ── Log streaming 초기화 ──
 
 /**
- * Ring Buffer + WS sender 태스크를 생성하고 esp_log를 후킹한다.
- * STA 모드에서만 호출 — SoftAP에서는 로그 스트리밍 불필요.
+ * Ring Buffer + WS sender 태스크를 생성하고 esp_log를 후킹합니다.
+ * STA 모드에서만 호출합니다 — SoftAP에서는 로그 스트리밍이 불필요합니다.
  */
 static void init_log_streaming() {
     /* WS 인증 토큰 생성. 부팅마다 랜덤. */

@@ -46,8 +46,8 @@ static QueueHandle_t s_queue = nullptr;
 // ── 내부 유틸리티 ────────────────────────────────────────────────────────────
 
 /**
- * MAC 바이트 배열을 12자리 대문자 hex 문자열로 변환한다.
- * out에는 최소 13바이트 공간이 필요하다 (12자 + null).
+ * MAC 바이트 배열을 12자리 대문자 hex 문자열로 변환합니다.
+ * out에는 최소 13바이트 공간이 필요합니다 (12자 + null).
  */
 static void mac_to_key(const uint8_t (&mac)[6], char (&out)[13]) {
     snprintf(out, sizeof(out), "%02X%02X%02X%02X%02X%02X",
@@ -55,9 +55,9 @@ static void mac_to_key(const uint8_t (&mac)[6], char (&out)[13]) {
 }
 
 /**
- * 캐시에서 MAC 주소로 항목을 찾는다.
- * 없으면 nullptr 반환.
- * 호출자가 mutex를 이미 획득한 상태여야 한다.
+ * 캐시에서 MAC 주소로 항목을 찾습니다.
+ * 없으면 nullptr 반환합니다.
+ * 호출자가 mutex를 이미 획득한 상태여야 합니다.
  */
 static DeviceConfigEntry *find_entry(const uint8_t (&mac)[6]) {
     for (int i = 0; i < kMaxEntries; ++i) {
@@ -69,9 +69,9 @@ static DeviceConfigEntry *find_entry(const uint8_t (&mac)[6]) {
 }
 
 /**
- * 빈 슬롯을 찾는다.
- * 없으면 nullptr 반환 (캐시 가득 찬 상태).
- * 호출자가 mutex를 이미 획득한 상태여야 한다.
+ * 빈 슬롯을 찾습니다.
+ * 없으면 nullptr 반환합니다 (캐시 가득 찬 상태).
+ * 호출자가 mutex를 이미 획득한 상태여야 합니다.
  */
 static DeviceConfigEntry *find_free_slot() {
     for (int i = 0; i < kMaxEntries; ++i) {
@@ -85,8 +85,8 @@ static DeviceConfigEntry *find_free_slot() {
 // ── NVS 저장/삭제 ────────────────────────────────────────────────────────────
 
 /**
- * NVS에 DeviceConfig blob을 저장한다.
- * 실패 시 로그를 남기고 반환한다(캐시는 이미 반영된 상태).
+ * NVS에 DeviceConfig blob을 저장합니다.
+ * 실패 시 로그를 남기고 반환합니다(캐시는 이미 반영된 상태).
  */
 static void save_entry_to_nvs(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     char key[13];
@@ -117,8 +117,8 @@ static void save_entry_to_nvs(const uint8_t (&mac)[6], const DeviceConfig &cfg) 
 }
 
 /**
- * NVS에서 DeviceConfig blob을 삭제한다.
- * 키가 없으면 조용히 무시한다.
+ * NVS에서 DeviceConfig blob을 삭제합니다.
+ * 키가 없으면 조용히 무시합니다.
  */
 static void delete_entry_from_nvs(const uint8_t (&mac)[6]) {
     char key[13];
@@ -164,8 +164,8 @@ static bool erase_key_from_nvs(nvs_handle_t handle, const char *key) {
 // ── 백그라운드 NVS 쓰기 태스크 ──────────────────────────────────────────────
 
 /**
- * NVS I/O를 비동기로 처리하는 백그라운드 태스크.
- * set()/delete()가 큐에 넣은 CfgCmd를 꺼내 실제 NVS 쓰기를 수행한다.
+ * NVS I/O를 비동기로 처리하는 백그라운드 태스크입니다.
+ * set()/delete()가 큐에 넣은 CfgCmd를 꺼내 실제 NVS 쓰기를 수행합니다.
  */
 static void cfg_nvs_task(void *) {
     CfgCmd cmd;
@@ -184,8 +184,8 @@ static void cfg_nvs_task(void *) {
 // ── init 시 NVS 전체 로드 ────────────────────────────────────────────────────
 
 /**
- * NVS namespace "dev"의 모든 blob 항목을 읽어 캐시에 적재한다.
- * key는 12자리 대문자 hex MAC 문자열이어야 한다.
+ * NVS namespace "dev"의 모든 blob 항목을 읽어 캐시에 적재합니다.
+ * key는 12자리 대문자 hex MAC 문자열이어야 합니다.
  */
 static void load_all_from_nvs() {
     nvs_handle_t handle;

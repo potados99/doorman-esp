@@ -16,9 +16,9 @@ protected:
     const uint8_t mac_b[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x02};
 
     /**
-     * 헬퍼: 윈도우 내에 enter_min_count 횟수만큼 feed를 보내어 진입 조건을 충족시킨다.
-     * 1초 간격으로 관측을 보내고 마지막 feed 시각을 반환.
-     * update_device_config는 호출하지 않으므로, 각 테스트에서 명시적으로 호출해야 함.
+     * 헬퍼: 윈도우 내에 enter_min_count 횟수만큼 feed를 보내어 진입 조건을 충족시킵니다.
+     * 1초 간격으로 관측을 보내고 마지막 feed 시각을 반환합니다.
+     * update_device_config는 호출하지 않으므로, 각 테스트에서 명시적으로 호출해야 합니다.
      */
     uint32_t feed_enter(StateMachine &sm, const uint8_t (&mac)[6], uint32_t start_ms, int8_t rssi = -65) {
         uint32_t t = start_ms;
@@ -196,8 +196,8 @@ TEST_F(StateMachineTest, ExactTimeoutBoundaryCausesUndetected) {
     EXPECT_EQ(sm.tick(t2), Action::Unlock);
 }
 
-// SM은 항상 Unlock을 판정한다 (드라이런).
-// auto_unlock 억제는 SM Task에서 수행. SM 자체는 조건 없이 Unlock 반환.
+// SM은 항상 Unlock을 판정합니다 (드라이런).
+// auto_unlock 억제는 SM Task에서 수행합니다. SM 자체는 조건 없이 Unlock을 반환합니다.
 TEST_F(StateMachineTest, AlwaysReturnsUnlock) {
     StateMachine sm;
     sm.update_device_config(mac_a, dev_cfg);

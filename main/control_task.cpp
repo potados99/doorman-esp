@@ -9,8 +9,8 @@
 static const char *TAG = "ctrl";
 
 /**
- * 큐 깊이 4: 동시에 여러 기기가 감지되어도 최대 4개까지 버퍼링.
- * 실사용에서 동시에 4개 이상의 unlock 요청이 겹칠 가능성은 극히 낮다.
+ * 큐 깊이 4: 동시에 여러 기기가 감지되어도 최대 4개까지 버퍼링합니다.
+ * 실사용에서 동시에 4개 이상의 unlock 요청이 겹칠 가능성은 극히 낮습니다.
  */
 static constexpr int kQueueDepth = 4;
 static QueueHandle_t s_queue = nullptr;
@@ -19,8 +19,8 @@ static void control_task(void *) {
     ControlCommand cmd;
     while (true) {
         /**
-         * portMAX_DELAY로 무한 대기.
-         * 큐에 메시지가 올 때만 깨어나서 GPIO 펄스를 실행한다.
+         * portMAX_DELAY로 무한 대기합니다.
+         * 큐에 메시지가 올 때만 깨어나서 GPIO 펄스를 실행합니다.
          */
         if (xQueueReceive(s_queue, &cmd, portMAX_DELAY) == pdTRUE) {
             const char *reason = (cmd == ControlCommand::AutoUnlock)

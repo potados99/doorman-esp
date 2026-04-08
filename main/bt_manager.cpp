@@ -64,7 +64,7 @@ struct BtCmd {
 
 /**
  * BT 명령 큐: HTTP 핸들러 → BT 태스크.
- * 깊이 4면 충분 — 페어링 + 삭제 요청이 겹칠 수 있으므로 여유 확보.
+ * 깊이 4면 충분합니다 — 페어링 + 삭제 요청이 겹칠 수 있으므로 여유를 확보합니다.
  */
 static QueueHandle_t s_bt_cmd_queue = nullptr;
 
@@ -325,10 +325,10 @@ bool is_resolvable_private_address(const uint8_t *addr) {
 }
 
 /**
- * RPA(Resolvable Private Address)를 IRK(Identity Resolving Key)로 해석한다.
+ * RPA(Resolvable Private Address)를 IRK(Identity Resolving Key)로 해석합니다.
  *
  * BLE 본딩된 기기는 프라이버시 보호를 위해 매번 다른 MAC(RPA)을 사용하므로,
- * 본딩 시 교환한 IRK로 AES-128 연산을 수행하여 RPA의 실제 소유자를 확인해야 한다.
+ * 본딩 시 교환한 IRK로 AES-128 연산을 수행하여 RPA의 실제 소유자를 확인해야 합니다.
  */
 bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16]) {
     if (!is_resolvable_private_address(rpa)) {
@@ -363,11 +363,11 @@ bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16]) {
 // ── Bond 캐시 관리 ──
 
 /**
- * BLE 본딩 목록을 ESP-IDF BT 스택에서 읽어와 s_ble_peers에 캐싱한다.
+ * BLE 본딩 목록을 ESP-IDF BT 스택에서 읽어와 s_ble_peers에 캐싱합니다.
  *
- * 각 본딩된 기기의 identity address와 IRK를 추출한다.
- * IRK가 있으면 RPA resolve에 사용하고, 없으면 고정 주소로 직접 비교한다.
- * IRK 바이트 순서는 ESP-IDF와 BLE 표준 간 endianness가 다르므로 역전이 필요.
+ * 각 본딩된 기기의 identity address와 IRK를 추출합니다.
+ * IRK가 있으면 RPA resolve에 사용하고, 없으면 고정 주소로 직접 비교합니다.
+ * IRK 바이트 순서는 ESP-IDF와 BLE 표준 간 endianness가 다르므로 역전이 필요합니다.
  */
 void refresh_ble_bond_cache() {
     int dev_num = esp_ble_get_bond_device_num();
@@ -474,10 +474,10 @@ void configure_ble_advertising() {
 }
 
 /**
- * BLE 스캔 모드로 전환을 요청한다.
+ * BLE 스캔 모드로 전환을 요청합니다.
  *
- * advertising 중이면 먼저 stop → stop 완료 콜백에서 scan params 설정 → scan 시작.
- * 이 비동기 체인은 BLE GAP 콜백에서 처리된다.
+ * advertising 중이면 먼저 stop → stop 완료 콜백에서 scan params 설정 → scan 시작합니다.
+ * 이 비동기 체인은 BLE GAP 콜백에서 처리됩니다.
  */
 void request_ble_scan_mode() {
     if (s_ble_scanning.load()) {
@@ -507,8 +507,8 @@ void request_ble_scan_mode() {
 // ── 페어링 윈도우 관리 ──
 
 /**
- * 페어링 윈도우를 연다. BT 태스크 내부에서 호출.
- * 이미 페어링 중이면 무시.
+ * 페어링 윈도우를 엽니다. BT 태스크 내부에서 호출합니다.
+ * 이미 페어링 중이면 무시합니다.
  */
 void open_pairing_window() {
     if (s_pairing_mode.load()) {
@@ -520,8 +520,8 @@ void open_pairing_window() {
     s_pairing_start_tick = xTaskGetTickCount();
 
     /**
-     * scan mode 전환이 진행 중인 read_remote_name page를 취소할 수 있다.
-     * 콜백이 안 오면 이 플래그가 true에 고착되어 프로브가 영구 정지되므로 리셋.
+     * scan mode 전환이 진행 중인 read_remote_name page를 취소할 수 있습니다.
+     * 콜백이 안 오면 이 플래그가 true에 고착되어 프로브가 영구 정지되므로 리셋합니다.
      */
     s_classic_probe_in_flight.store(false);
 
@@ -543,8 +543,8 @@ void open_pairing_window() {
 }
 
 /**
- * 페어링 윈도우를 닫고 스캔 모드로 전환한다.
- * 30초 경과 시 presence_task에서 호출.
+ * 페어링 윈도우를 닫고 스캔 모드로 전환합니다.
+ * 30초 경과 시 presence_task에서 호출합니다.
  */
 void close_pairing_window() {
     if (!s_pairing_mode.exchange(false)) {
@@ -569,12 +569,12 @@ void close_pairing_window() {
 // ── Presence 갱신 (감지 이벤트 → SM Task 전달) ──
 
 /**
- * 비등록 주소 네거티브 캐시.
+ * 비등록 주소 네거티브 캐시입니다.
  *
  * AES resolve까지 돌렸는데 매칭 안 된 주소를 기억해서,
- * 같은 주소가 다시 오면 AES 없이 즉시 스킵한다.
- * RPA가 바뀌면 자연스럽게 캐시 미스 → 새로 resolve 시도.
- * Bluedroid 콜백은 단일 태스크이므로 lock 불필요.
+ * 같은 주소가 다시 오면 AES 없이 즉시 스킵합니다.
+ * RPA가 바뀌면 자연스럽게 캐시 미스 → 새로 resolve를 시도합니다.
+ * Bluedroid 콜백은 단일 태스크이므로 lock이 불필요합니다.
  */
 static constexpr int kNegCacheSize = 32;
 static esp_bd_addr_t s_neg_cache[kNegCacheSize] = {};
@@ -595,11 +595,11 @@ static void neg_cache_add(const uint8_t *bda) {
 }
 
 /**
- * BLE 스캔 결과에서 본딩된 기기를 식별하고 SM Task에 피드한다.
+ * BLE 스캔 결과에서 본딩된 기기를 식별하고 SM Task에 피드합니다.
  *
  * RPA resolve 성공 = 감지됨 → sm_feed_queue_send(mac, true, now_ms)
  * 해당 기기의 identity address를 MAC으로 사용하여
- * StateMachine이 기기를 일관되게 추적할 수 있도록 한다.
+ * StateMachine이 기기를 일관되게 추적할 수 있도록 합니다.
  */
 void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param &scan_rst) {
     /* 네거티브 캐시 히트 → AES resolve 전에 즉시 리턴 */
@@ -608,9 +608,9 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
     }
     /*
      * 크리티컬 섹션 안에서 resolve_rpa_with_irk()를 호출하면
-     * 하드웨어 AES가 내부적으로 mutex를 잡아 데드락이 발생할 수 있다.
+     * 하드웨어 AES가 내부적으로 mutex를 잡아 데드락이 발생할 수 있습니다.
      * maybe_start_classic_probe()와 동일한 패턴으로
-     * 먼저 peer 데이터를 로컬에 스냅샷한 뒤, 섹션 밖에서 RPA resolve를 수행한다.
+     * 먼저 peer 데이터를 로컬에 스냅샷한 뒤, 섹션 밖에서 RPA resolve를 수행합니다.
      */
     BlePeer peers_snap[kMaxBleBondedDevices] = {};
     int peer_count = 0;
@@ -627,8 +627,8 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
 
     /**
      * 패스트패스: 마지막으로 본 광고 주소(last_adv_addr)와 memcmp.
-     * RPA는 ~15분마다 바뀌므로 대부분의 관측은 AES 없이 여기서 매칭된다.
-     * 비등록 기기 광고가 많은 환경에서 AES 부하를 대폭 줄인다.
+     * RPA는 ~15분마다 바뀌므로 대부분의 관측은 AES 없이 여기서 매칭됩니다.
+     * 비등록 기기 광고가 많은 환경에서 AES 부하를 대폭 줄입니다.
      */
     for (int i = 0; i < peer_count; ++i) {
         if (!peers_snap[i].valid) continue;
@@ -671,7 +671,7 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         }
         taskEXIT_CRITICAL(&s_state_lock);
 
-        /* SM Task에 감지 이벤트 전달 (RSSI 포함). 페어링 중에도 feed는 보낸다.
+        /* SM Task에 감지 이벤트 전달 (RSSI 포함). 페어링 중에도 feed는 보냅니다.
          * Unlock 억제는 SM Task에서 일괄 처리 (유예기간/auto_unlock/페어링 상태). */
         char identity_str[18] = {};
         bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
@@ -685,8 +685,8 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
 }
 
 /**
- * Classic remote_name probe 성공 시 presence 갱신 및 SM Task 피드.
- * probe 실패 시도 SM Task에 seen=false로 피드한다.
+ * Classic remote_name probe 성공 시 presence 갱신 및 SM Task 피드를 수행합니다.
+ * probe 실패 시도 SM Task에 seen=false로 피드합니다.
  */
 void update_classic_presence(const uint8_t *bda, const uint8_t *name) {
     taskENTER_CRITICAL(&s_state_lock);
@@ -707,10 +707,10 @@ void update_classic_presence(const uint8_t *bda, const uint8_t *name) {
 }
 
 /**
- * Classic 본딩된 기기에 대해 round-robin으로 remote_name probe를 시작한다.
+ * Classic 본딩된 기기에 대해 round-robin으로 remote_name probe를 시작합니다.
  *
  * probe 성공/실패는 classic_gap_callback에서 처리되며,
- * 한 번에 하나의 probe만 실행한다 (s_classic_probe_in_flight).
+ * 한 번에 하나의 probe만 실행합니다 (s_classic_probe_in_flight).
  */
 void maybe_start_classic_probe() {
     if (s_pairing_mode.load() || s_classic_probe_in_flight.load()) {
@@ -718,8 +718,8 @@ void maybe_start_classic_probe() {
     }
 
     /**
-     * ClassicPeer[15]를 통째로 스택에 올리면 ~4KB를 먹으므로,
-     * 크리티컬 섹션 안에서 probe 대상 하나의 bda만 복사한다.
+     * ClassicPeer[15]를 통째로 스택에 올리면 ~4KB를 소비하므로,
+     * 크리티컬 섹션 안에서 probe 대상 하나의 bda만 복사합니다.
      */
     esp_bd_addr_t target_bda = {};
     bool found = false;
@@ -756,14 +756,14 @@ void maybe_start_classic_probe() {
 // ── Presence 태스크 ──
 
 /**
- * BT presence 태스크 메인 루프.
+ * BT presence 태스크 메인 루프입니다.
  *
- * 두 가지 모드로 동작한다:
+ * 두 가지 모드로 동작합니다:
  * 1. 페어링 모드: 타이머 확인, 로그 출력, 페어링 큐 확인
  * 2. 스캔 모드: Classic probe 주기 실행
  *
  * BLE 스캔은 콜백 기반이므로 이 루프에서 별도 처리 없이
- * ble_gap_callback에서 직접 update_ble_presence()를 호출한다.
+ * ble_gap_callback에서 직접 update_ble_presence()를 호출합니다.
  */
 void presence_task(void *) {
     TickType_t last_pairing_log = 0;
@@ -790,8 +790,8 @@ void presence_task(void *) {
 
                 /**
                  * BLE 삭제: identity address로 요청이 오지만, esp_ble_remove_bond_device()는
-                 * 본딩 시 사용된 bd_addr를 기대한다. bond list에서 identity address가 일치하는
-                 * 항목의 bd_addr를 찾아서 삭제해야 한다.
+                 * 본딩 시 사용된 bd_addr를 기대합니다. bond list에서 identity address가 일치하는
+                 * 항목의 bd_addr를 찾아서 삭제해야 합니다.
                  */
                 bool ble_removed = false;
                 {
@@ -1175,11 +1175,11 @@ esp_err_t bt_manager_start() {
     s_bt_cmd_queue = xQueueCreate(4, sizeof(BtCmd));
     configASSERT(s_bt_cmd_queue);
 
-    /* 부팅 시 페어링 자동 시작 안 함. 웹에서 수동으로 시작/종료. */
+    /* 부팅 시 페어링 자동 시작은 하지 않습니다. 웹에서 수동으로 시작/종료합니다. */
 
     /**
-     * BT 스택 초기화 순서는 PoC에서 검증된 것과 동일.
-     * 순서를 바꾸면 ESP-IDF BT 스택이 비정상 동작할 수 있으므로 절대 변경하지 말 것.
+     * BT 스택 초기화 순서는 PoC에서 검증된 것과 동일합니다.
+     * 순서를 바꾸면 ESP-IDF BT 스택이 비정상 동작할 수 있으므로 절대 변경하지 마세요.
      */
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_bt_controller_init(&bt_cfg);
@@ -1244,9 +1244,9 @@ esp_err_t bt_manager_start() {
     ESP_LOGI(kTag, "BT Manager started: BLE='%s', Classic='%s'", kBleDeviceName, kClassicDeviceName);
 
     /**
-     * BT 태스크는 Core 0에 고정.
+     * BT 태스크는 Core 0에 고정합니다.
      * sdkconfig에서 BT controller/Bluedroid도 Core 0에 고정되어 있으므로
-     * 모든 BT 관련 작업이 같은 코어에서 실행된다.
+     * 모든 BT 관련 작업이 같은 코어에서 실행됩니다.
      */
     BaseType_t task_ok = xTaskCreatePinnedToCore(
         presence_task,
@@ -1309,9 +1309,9 @@ int bt_get_bonded_devices(uint8_t (*out_macs)[6], int max_count) {
     int count = 0;
 
     /**
-     * BLE: peer 캐시의 identity_addr를 사용.
+     * BLE: peer 캐시의 identity_addr를 사용합니다.
      * esp_ble_get_bond_device_list()의 bd_addr는 본딩 시 사용된 주소(RPA 등)일 수 있어서
-     * 실제 identity address와 다를 수 있다. peer 캐시는 pid_key.static_addr를 쓰므로 정확.
+     * 실제 identity address와 다를 수 있습니다. peer 캐시는 pid_key.static_addr를 쓰므로 정확합니다.
      */
     taskENTER_CRITICAL(&s_state_lock);
     for (int i = 0; i < s_ble_peer_count && count < max_count; ++i) {

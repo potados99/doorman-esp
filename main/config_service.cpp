@@ -17,8 +17,8 @@ static AppConfig s_config = {};
 static SemaphoreHandle_t s_mutex = nullptr;
 
 /**
- * NVS에서 설정을 읽어온다. 키가 없으면(초기 상태) 기본값을 유지.
- * NVS open 실패 시에도 기본값으로 정상 동작한다.
+ * NVS에서 설정을 읽어옵니다. 키가 없으면(초기 상태) 기본값을 유지합니다.
+ * NVS open 실패 시에도 기본값으로 정상 동작합니다.
  */
 static void load_from_nvs() {
     AppConfig loaded = s_config;
@@ -41,7 +41,7 @@ static void load_from_nvs() {
              s_config.auto_unlock_enabled ? "on" : "off");
 }
 
-/** NVS에 현재 설정을 저장한다. mutex는 호출자가 이미 획득한 상태. */
+/** NVS에 현재 설정을 저장합니다. mutex는 호출자가 이미 획득한 상태입니다. */
 static void save_to_nvs() {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);

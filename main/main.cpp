@@ -17,10 +17,10 @@
 
 static const char *TAG = "main";
 
-/** 연속 panic reset N회 이상이면 세이프 모드 진입. */
+/** 연속 panic reset N회 이상이면 세이프 모드로 진입합니다. */
 static constexpr int kPanicThreshold = 3;
 
-/** 정상 부팅 후 이 시간(초)이 지나면 panic 카운터를 0으로 리셋. */
+/** 정상 부팅 후 이 시간(초)이 지나면 panic 카운터를 0으로 리셋합니다. */
 static constexpr int kSafeModeResetDelaySec = 60;
 
 static constexpr const char *kNvsNamespace = "sys";
@@ -31,13 +31,13 @@ static bool s_safe_mode = false;
 bool is_safe_mode() { return s_safe_mode; }
 
 /**
- * NVS에서 연속 panic 카운터를 읽고 갱신한다.
+ * NVS에서 연속 panic 카운터를 읽고 갱신합니다.
  *
  * - 직전 리셋이 panic이면 카운터 +1
  * - 그 외(정상 리셋, 전원 사이클 등)면 카운터 0으로 리셋
  * - 카운터 >= kPanicThreshold이면 세이프 모드 플래그 세팅
  *
- * NVS open 실패 시에도 세이프 모드 없이 정상 부팅한다 (fail-open).
+ * NVS open 실패 시에도 세이프 모드 없이 정상 부팅합니다 (fail-open).
  */
 static void check_safe_mode() {
     esp_reset_reason_t reason = esp_reset_reason();
@@ -70,8 +70,8 @@ static void check_safe_mode() {
 }
 
 /**
- * 정상 가동 확정 후 panic 카운터를 0으로 리셋하는 타이머 콜백.
- * 이 시점까지 crash 없이 살아남았으면 환경이 안정적이라고 판단.
+ * 정상 가동 확정 후 panic 카운터를 0으로 리셋하는 타이머 콜백입니다.
+ * 이 시점까지 crash 없이 살아남았으면 환경이 안정적이라고 판단합니다.
  */
 static void reset_panic_counter(void *) {
     nvs_handle_t handle;
@@ -95,8 +95,8 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(ret);
 
     /**
-     * OTA 롤백 방지: 이 펌웨어가 정상임을 bootloader에 확정한다.
-     * 이걸 안 부르면 전원 사이클 시 bootloader가 이전 파티션으로 롤백한다.
+     * OTA 롤백 방지: 이 펌웨어가 정상임을 bootloader에 확정합니다.
+     * 이걸 안 부르면 전원 사이클 시 bootloader가 이전 파티션으로 롤백합니다.
      */
     esp_ota_mark_app_valid_cancel_rollback();
 

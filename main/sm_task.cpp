@@ -36,16 +36,16 @@ static_assert(sizeof(SmMsg) <= 24, "SmMsg too large for queue");
 
 /**
  * 큐 깊이 16: BLE 스캔은 짧은 시간에 여러 advertising을 수신할 수 있으므로
- * 충분한 버퍼를 확보. 큐가 차면 오래된 이벤트는 드랍되지만,
- * BLE는 곧 다시 advertising을 보내므로 실질적 영향 없다.
+ * 충분한 버퍼를 확보합니다. 큐가 차면 오래된 이벤트는 드랍되지만,
+ * BLE는 곧 다시 advertising을 보내므로 실질적 영향 없습니다.
  */
 static constexpr int kQueueDepth = 16;
 
 /**
- * tick 주기 (밀리초).
+ * tick 주기 (밀리초)입니다.
  * xQueueReceive 타임아웃으로 사용하여,
- * 피드 메시지가 없어도 주기적으로 tick()을 호출한다.
- * 2초면 presence timeout 판단에 충분한 해상도를 제공한다.
+ * 피드 메시지가 없어도 주기적으로 tick()을 호출합니다.
+ * 2초면 presence timeout 판단에 충분한 해상도를 제공합니다.
  */
 static constexpr int kTickIntervalMs = 2000;
 
@@ -57,11 +57,11 @@ static DeviceState       s_snapshots[kMaxTrackedDevices] = {};
 static int               s_snapshot_count = 0;
 
 /**
- * 시작 후 유예기간 (밀리초).
+ * 시작 후 유예기간 (밀리초)입니다.
  * 재부팅 직후 이미 근처에 있는 기기들이 "최초 감지 → Unlock"으로
- * 문을 여는 걸 방지한다. 유예기간 동안 SM은 정상 동작(감지 추적)하되
- * Unlock만 Control Task에 안 보낸다. SM 내부적으로 last_unlock_ms가
- * 세팅되므로, 유예 후에는 이미 "처리 완료" 상태.
+ * 문을 여는 걸 방지합니다. 유예기간 동안 SM은 정상 동작(감지 추적)하되
+ * Unlock만 Control Task에 안 보냅니다. SM 내부적으로 last_unlock_ms가
+ * 세팅되므로, 유예 후에는 이미 "처리 완료" 상태입니다.
  */
 static constexpr uint32_t kStartupGraceMs = 30000;
 
@@ -91,12 +91,12 @@ static void sm_task(void *) {
             switch (msg.type) {
             case SmMsgType::Feed:
                 /**
-                 * 감지 파라미터(rssi_threshold, timeout 등)를 feed 시점에 주입한다.
-                 * device_config_get()은 캐시 읽기(즉시)이고, 캐시에 없으면 기본값 반환.
+                 * 감지 파라미터(rssi_threshold, timeout 등)를 feed 시점에 주입합니다.
+                 * device_config_get()은 캐시 읽기(즉시)이며, 캐시에 없으면 기본값을 반환합니다.
                  *
-                 * 이 값들은 feed가 올 때만 판정에 쓰이므로 이 시점에 넣는 것이 정확하다.
-                 * alias 등 표시용 필드는 SM이 사용하지 않으며, 웹 UI가 REST로 직접 읽는다.
-                 * config 변경(모달 저장 등)은 캐시에 즉시 반영되므로 다음 feed부터 적용.
+                 * 이 값들은 feed가 올 때만 판정에 쓰이므로 이 시점에 넣는 것이 정확합니다.
+                 * alias 등 표시용 필드는 SM이 사용하지 않으며, 웹 UI가 REST로 직접 읽습니다.
+                 * config 변경(모달 저장 등)은 캐시에 즉시 반영되므로 다음 feed부터 적용됩니다.
                  */
                 sm.update_device_config(msg.feed.mac, device_config_get(msg.feed.mac));
                 sm.feed(msg.feed.mac, msg.feed.seen, msg.feed.now_ms, msg.feed.rssi);
@@ -117,10 +117,10 @@ static void sm_task(void *) {
         xSemaphoreGive(s_snapshot_mutex);
 
         /**
-         * Unlock 억제 — SM은 항상 드라이런 판정. 여기서만 실제 전달 결정.
+         * Unlock 억제 — SM은 항상 드라이런 판정. 여기서만 실제 전달을 결정합니다.
          * 1. 유예기간: 재부팅 직후 기존 기기 flood 방지
          * 2. auto_unlock OFF: 사용자가 명시적으로 꺼놓은 상태
-         * 3. 페어링 중: 새 기기 bond 중에 문 열리면 안 됨
+         * 3. 페어링 중: 새 기기 bond 중에 문 열리면 안 됩니다
          */
         if (action == Action::Unlock) {
             AppConfig current_cfg = app_config_get();
