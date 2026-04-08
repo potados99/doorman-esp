@@ -1182,25 +1182,43 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
         /**
          * ESP_GAP_BLE_AUTH_CMPL_EVT는 **최초 페어링과 재연결 둘 다에서 발사**됩니다.
-         *   - 최초 페어링: SMP 키 교환 후 → auth_mode에 ESP_LE_AUTH_BOND 비트 세팅
-         *   - 재연결: 저장된 LTK로 link encryption만 재수립 → 비트 미세팅
-         * 재연결 시에도 같은 로그를 찍으면 프론트엔드 페어링 모달이 "연결됨!" 오탐을
-         * 띄우고, 이미 있는 config를 다시 set 시도하는 등 불필요한 부수효과가 생깁니다.
-         * 따라서 ESP_LE_AUTH_BOND 비트로 **첫 본딩에만** 반응하도록 게이트합니다.
+         *   - 최초 페어링: SMP 핸드셰이크 + 키 교환
+         *   - 재연결: 저장된 LTK로 link encryption만 재수립
          *
-         * identity resolution을 위해 bond cache를 먼저 갱신하는 것은 양쪽 경로 모두
-         * 필요할 수 있으므로 게이트 이전에 무조건 호출합니다. ESP-IDF 내부에서
-         * auth_cmpl 콜백은 NVS flush 이후에 dispatch되므로 이 시점에 새 peer의
-         * identity key(static_addr + IRK)를 읽을 수 있음이 보장됩니다
-         * (btc_dm.c:918, btc_storage_add_ble_bonding_key 동기 커밋).
+         * 두 경로를 어떻게 구분할 것인가 — 정직한 답: **`auth_mode` 비트로는 못 한다.**
+         *
+         * ESP-IDF 소스 추적 결과(`smp_utils.c:983-995` smp_proc_pairing_cmpl):
+         *
+         *     evt_data.cmplt.auth_mode = 0;
+         *     if (p_cb->auth_mode) { // the first encryption
+         *         evt_data.cmplt.auth_mode = p_cb->auth_mode;
+         *         if (p_rec) p_rec->ble.auth_mode = p_cb->auth_mode;
+         *     } else if (p_rec) {
+         *         evt_data.cmplt.auth_mode = p_rec->ble.auth_mode;  // 저장값 복원
+         *     }
+         *
+         * 즉 첫 페어링에서 BOND 비트가 켜졌으면 디바이스 record에 저장되고,
+         * **재연결에서도 그 저장값이 그대로 복원되어** 같은 비트가 켜진 채로 옵니다.
+         * `ESP_LE_AUTH_BOND` 비트는 "첫 본딩 마커"가 아니라 "본드 의도가 있었다는
+         * 영구 플래그"여서 재연결 구분에 쓸 수 없습니다.
+         *
+         * 진짜 게이트: **사용자가 페어링 창을 의도적으로 연 상태**(`bt_is_pairing()`)
+         * 일 때만 첫 페어링으로 간주합니다. 재연결은 페어링 모드 밖에서 일어나므로
+         * 자동으로 분리됩니다. 이 게이트는 "프론트엔드의 페어링 모달 UX와 정확히
+         * 일치"한다는 추가 이점이 있습니다 — 모달이 열려있을 때만 "연결됨!" emit.
+         *
+         * identity resolution을 위해 bond cache를 갱신하는 것은 첫 페어링 경로에서만
+         * 필요하므로 게이트 안으로 옮겼습니다. 재연결 경로에서는 bond list가 안 바뀌니
+         * refresh를 또 호출할 이유가 없습니다. ESP-IDF가 auth_cmpl 콜백을 dispatch
+         * 하기 전에 NVS flush를 동기 완료해주므로(btc_dm.c:918) 이 시점의 refresh는
+         * 안전하게 새 peer의 identity key(static_addr + IRK)를 읽을 수 있습니다.
          */
-        refresh_ble_bond_cache();
-
         const bool success = param->ble_security.auth_cmpl.success;
-        const bool is_new_bond =
-            (param->ble_security.auth_cmpl.auth_mode & ESP_LE_AUTH_BOND) != 0;
+        const bool in_pairing_mode = s_pairing_mode.load();
 
-        if (success && is_new_bond) {
+        if (success && in_pairing_mode) {
+            refresh_ble_bond_cache();
+
             uint8_t identity[ESP_BD_ADDR_LEN] = {};
             bool have_identity = find_identity_for_connected_addr(
                 param->ble_security.auth_cmpl.bd_addr, identity);
@@ -1213,10 +1231,9 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
             char addr_str[18] = {};
             bda_to_str(use_addr, addr_str, sizeof(addr_str));
             if (!have_identity) {
-                /* Research 확인: auth_cmpl 시점에는 bond list NVS flush가 이미
-                 * 끝난 상태(btc_dm.c:918)라 identity resolve는 반드시 성공해야 정상.
-                 * 여기 진입하면 ESP-IDF 내부 순서가 바뀌었거나 bond 저장 실패 등
-                 * 예상치 못한 상황 — 묻지 말고 경고로 남김. */
+                /* auth_cmpl 시점에는 btc_dm이 NVS flush를 이미 끝냈으므로 identity
+                 * resolve는 정상적으로 실패할 이유가 없음. 여기 진입하면 ESP-IDF
+                 * 내부 순서 변경이나 bond 저장 실패 등 예상 외 상황이므로 경고. */
                 ESP_LOGW(kTag, "BLE auth complete: identity unresolved for conn_addr=%s "
                                "(fallback to conn addr; check btc_dm flush order)",
                          addr_str);
@@ -1233,10 +1250,10 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
                 device_config_set(mac, cfg);
             }
         } else if (success) {
-            /* 재연결(저장된 LTK로 link encryption만 재수립). 프론트엔드 페어링
-             * 모달 regex `/BLE auth complete: success=yes/`에 걸리지 않도록
-             * 의도적으로 **다른 문자열**로 찍어 "연결됨!" 오탐을 방지합니다.
-             * ESP_LOGI 레벨이라 운영 로그에서도 흔적 확인 가능. */
+            /* 페어링 모드 밖에서 발사된 인증 성공 = 재연결(저장된 LTK로 link
+             * encryption만 재수립). 프론트엔드 페어링 모달 regex
+             * `/BLE auth complete: success=yes/`에 걸리지 않도록 의도적으로
+             * **다른 문자열**로 찍어 "연결됨!" 오탐을 방지합니다. */
             char addr_str[18] = {};
             bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
             ESP_LOGI(kTag, "BLE re-encryption (existing bond) addr=%s", addr_str);
