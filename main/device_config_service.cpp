@@ -177,9 +177,9 @@ static void cfg_nvs_task(void *) {
             continue;
         }
         if (cmd.type == CfgCmdType::Set) {
-            save_entry_to_nvs(reinterpret_cast<const uint8_t(&)[6]>(cmd.mac), cmd.config);
+            save_entry_to_nvs(cmd.mac, cmd.config);
         } else {
-            delete_entry_from_nvs(reinterpret_cast<const uint8_t(&)[6]>(cmd.mac));
+            delete_entry_from_nvs(cmd.mac);
         }
     }
 }

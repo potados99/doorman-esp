@@ -677,7 +677,7 @@ static esp_err_t devices_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, buf);
 
     for (int i = 0; i < bond_count; i++) {
-        DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(macs[i]));
+        DeviceConfig cfg = device_config_get(macs[i]);
         DeviceState *snap = find_snapshot(snapshots, snap_count, macs[i]);
 
         snprintf(buf, sizeof(buf),
@@ -732,9 +732,9 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
         mac[i] = static_cast<uint8_t>(m[i]);
     }
 
-    bt_remove_bond(reinterpret_cast<const uint8_t(&)[6]>(*mac));
-    device_config_delete(reinterpret_cast<const uint8_t(&)[6]>(*mac));
-    sm_remove_device_queue_send(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    bt_remove_bond(mac);
+    device_config_delete(mac);
+    sm_remove_device_queue_send(mac);
     return send_text(req, "200 OK", "OK");
 }
 
@@ -765,7 +765,7 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
     }
 
     // 현재 config를 기반으로 부분 업데이트
-    DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
+    DeviceConfig cfg = device_config_get(mac);
 
     char val[64] = {};
     // alias는 optional — 미포함이면 기존 값 유지, 길이 초과면 400.
@@ -795,7 +795,7 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Invalid values");
     }
 
-    device_config_set(reinterpret_cast<const uint8_t(&)[6]>(*mac), cfg);
+    device_config_set(mac, cfg);
     return send_text(req, "200 OK", "OK");
 }
 

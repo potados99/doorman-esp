@@ -74,7 +74,7 @@ static constexpr uint32_t kStartupGraceMs = 30000;
 static void sm_task(void *) {
     StateMachine sm;
 
-    uint32_t start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    uint32_t start_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
 
     ESP_LOGI(TAG, "StateMachine initialized (grace=%lums)", (unsigned long)kStartupGraceMs);
 
@@ -84,7 +84,7 @@ static void sm_task(void *) {
         DeviceConfig cfgs[kMaxTrackedDevices];
         int n = device_config_get_all(macs, cfgs, kMaxTrackedDevices);
         for (int i = 0; i < n; i++) {
-            sm.update_device_config(reinterpret_cast<const uint8_t(&)[6]>(macs[i]), cfgs[i]);
+            sm.update_device_config(macs[i], cfgs[i]);
         }
         ESP_LOGI(TAG, "Loaded %d device config(s) into SM", n);
     }
@@ -138,7 +138,7 @@ static void sm_task(void *) {
             }
         }
 
-        uint32_t real_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t real_now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
         // virtual time 진행: 첫 진입은 last_real_ms == 0 → delta 0.
         // 페어링이 아닐 때만 virtual time이 흐릅니다.
         if (last_real_ms != 0 && !bt_is_pairing()) {

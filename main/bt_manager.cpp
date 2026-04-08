@@ -769,9 +769,9 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         bda_to_str(peers_snap[matched_index].identity_addr, identity_str, sizeof(identity_str));
         ESP_LOGI(kTag, "%s rssi=%d", identity_str, scan_rst.rssi);
 
-        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
         sm_feed_queue_send(
-            reinterpret_cast<const uint8_t(&)[6]>(peers_snap[matched_index].identity_addr),
+            peers_snap[matched_index].identity_addr,
             true, now_ms, static_cast<int8_t>(scan_rst.rssi));
     }
 }
@@ -966,7 +966,7 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                      reinterpret_cast<const char *>(param->auth_cmpl.device_name));
             refresh_classic_bond_cache();
             {
-                const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*param->auth_cmpl.bda);
+                const uint8_t (&mac)[6] = param->auth_cmpl.bda;
                 DeviceConfig cfg = device_config_get(mac);
                 if (cfg.alias[0] == '\0') {
                     strncpy(cfg.alias,
@@ -1014,9 +1014,9 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             /* 페어링 중에는 SM feed를 억제 */
             if (!s_pairing_mode.load()) {
                 /* SM Task에 감지 이벤트 전달 */
-                uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+                uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
                 sm_feed_queue_send(
-                    reinterpret_cast<const uint8_t(&)[6]>(*param->read_rmt_name.bda),
+                    param->read_rmt_name.bda,
                     true, now_ms);
             }
         }
@@ -1196,6 +1196,8 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
                      param->ble_security.auth_cmpl.addr_type,
                      have_identity ? "" : " (identity unresolved — using conn addr)");
 
+            /* use_addr는 6바이트를 가리키는 포인터(identity 또는 bd_addr 둘 다
+             * ESP_BD_ADDR_LEN==6 보장). 배열 참조로 다시 묶기 위해 reinterpret_cast가 필요합니다. */
             const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*use_addr);
             if (!device_config_exists(mac)) {
                 DeviceConfig cfg = {};
