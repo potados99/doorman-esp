@@ -1212,10 +1212,18 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
 
             char addr_str[18] = {};
             bda_to_str(use_addr, addr_str, sizeof(addr_str));
-            ESP_LOGI(kTag, "BLE auth complete: success=yes addr=%s addr_type=%u%s",
+            if (!have_identity) {
+                /* Research 확인: auth_cmpl 시점에는 bond list NVS flush가 이미
+                 * 끝난 상태(btc_dm.c:918)라 identity resolve는 반드시 성공해야 정상.
+                 * 여기 진입하면 ESP-IDF 내부 순서가 바뀌었거나 bond 저장 실패 등
+                 * 예상치 못한 상황 — 묻지 말고 경고로 남김. */
+                ESP_LOGW(kTag, "BLE auth complete: identity unresolved for conn_addr=%s "
+                               "(fallback to conn addr; check btc_dm flush order)",
+                         addr_str);
+            }
+            ESP_LOGI(kTag, "BLE auth complete: success=yes addr=%s addr_type=%u",
                      addr_str,
-                     param->ble_security.auth_cmpl.addr_type,
-                     have_identity ? "" : " (identity unresolved — using conn addr)");
+                     param->ble_security.auth_cmpl.addr_type);
 
             /* use_addr는 6바이트 포인터(identity 또는 bd_addr, 둘 다 ESP_BD_ADDR_LEN==6
              * 보장). 배열 참조로 묶기 위해 reinterpret_cast 필요. */
@@ -1225,9 +1233,13 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
                 device_config_set(mac, cfg);
             }
         } else if (success) {
-            /* 재연결 — 조용히 지나감. 프론트엔드 모달에 "연결됨!" 오탐 방지.
-             * 디버그 레벨로만 흔적 남김. */
-            ESP_LOGD(kTag, "BLE re-encryption complete (existing bond, not a new pairing)");
+            /* 재연결(저장된 LTK로 link encryption만 재수립). 프론트엔드 페어링
+             * 모달 regex `/BLE auth complete: success=yes/`에 걸리지 않도록
+             * 의도적으로 **다른 문자열**로 찍어 "연결됨!" 오탐을 방지합니다.
+             * ESP_LOGI 레벨이라 운영 로그에서도 흔적 확인 가능. */
+            char addr_str[18] = {};
+            bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
+            ESP_LOGI(kTag, "BLE re-encryption (existing bond) addr=%s", addr_str);
         } else {
             char addr_str[18] = {};
             bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
