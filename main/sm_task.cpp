@@ -6,6 +6,7 @@
 
 #include <cstring>
 
+#include <esp_attr.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -51,9 +52,14 @@ static constexpr int kTickIntervalMs = 2000;
 
 static QueueHandle_t s_queue = nullptr;
 
-/** 스냅샷 보호 mutex 및 버퍼. */
+/**
+ * 스냅샷 보호 mutex 및 버퍼.
+ *
+ * s_snapshots는 sm_task가 mutex 하에서 평범한 read/write만 합니다 (DMA·ISR 무관).
+ * BSS_ATTR로 PSRAM에 두어 내부 RAM을 회수합니다 — 안전한 PSRAM 사용 사례.
+ */
 static SemaphoreHandle_t s_snapshot_mutex = nullptr;
-static DeviceState       s_snapshots[kMaxTrackedDevices] = {};
+EXT_RAM_BSS_ATTR static DeviceState s_snapshots[kMaxTrackedDevices] = {};
 static int               s_snapshot_count = 0;
 
 /**

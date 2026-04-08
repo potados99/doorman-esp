@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include <esp_attr.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -28,7 +29,9 @@ struct DeviceConfigEntry {
     bool       used;
 };
 
-static DeviceConfigEntry   s_entries[kMaxEntries] = {};
+// 캐시 자체는 mutex 보호하의 평범한 read/write — DMA·ISR 무관.
+// PSRAM에 두어 내부 RAM 회수.
+EXT_RAM_BSS_ATTR static DeviceConfigEntry s_entries[kMaxEntries] = {};
 static SemaphoreHandle_t   s_mutex                = nullptr;
 
 // ── 비동기 NVS 쓰기 큐 ───────────────────────────────────────────────────────

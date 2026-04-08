@@ -48,10 +48,28 @@ CONFIG_HTTPD_WS_SUPPORT=y
 # ── PSRAM 적극 활용 ──
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
-CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=16384
+# 1024B 이상 alloc은 PSRAM 우선 (이전: 4096). 작은 alloc까지 PSRAM으로 보내
+# 내부 RAM 압박을 크게 줄입니다. PSRAM 접근 속도 페널티는 우리 제어 패널
+# 워크로드(낮은 throughput)에서 무시 가능.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+# 내부 RAM 예약을 8KB로 축소 (이전: 16KB). DMA·ISR이 필요한 alloc은 여전히
+# 내부에서 잡히고, 나머지 일반 heap에 8KB 추가로 풀립니다.
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=8192
 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+# EXT_RAM_BSS_ATTR로 정적 배열을 PSRAM에 둘 수 있게 합니다.
+# 주의: PSRAM 스택과 다르게 BSS 데이터는 캐시-mediated 접근만 발생하므로
+# DMA·ISR 없는 한 안전합니다.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
+# WiFi/lwIP 동적 할당을 PSRAM으로 우선 라우팅 (이미 활성화 가정).
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# ── WiFi RX 버퍼 다이어트 ──
+# 제어 패널 트래픽은 매우 낮음. 기본값(static 16/dynamic 32/BA win 16)은 과대.
+# 줄여서 내부 RAM ~10KB 회수.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_RX_BA_WIN=8
 
 # ── BT 메모리 절약 ──
 CONFIG_BT_GATT_MAX_SR_ATTRIBUTES=30
