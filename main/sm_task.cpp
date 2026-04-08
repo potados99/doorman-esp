@@ -89,6 +89,24 @@ static void sm_task(void *) {
         ESP_LOGI(TAG, "Loaded %d device config(s) into SM", n);
     }
 
+    /**
+     * 가상 시간(virtual clock).
+     *
+     * 페어링 중에는 BLE 스캔이 강제 중단되어(bt_manager.cpp:open_pairing_window)
+     * SM에 feed가 안 들어옵니다. 그대로 두면 페어링 30초 동안 last_seen이
+     * 계속 뒤로 밀려서 페어링 끝나자마자 모든 기기가 timeout으로 퇴실로
+     * 떨어지는 문제가 생깁니다.
+     *
+     * 해결: SM에는 "real time"이 아닌 "virtual time"을 넘깁니다.
+     * 페어링 중에는 virtual time이 멈추고, 페어링이 끝나면 그대로 이어서
+     * 흐릅니다. SM 입장에서 페어링 30초는 "0초" 처럼 보이게 됩니다.
+     *
+     * 단점: 페어링 중에 진짜로 떠난 기기도 페어링 끝난 후에야 timeout 카운트가
+     * 다시 시작됩니다. 페어링 윈도우는 30초로 짧으므로 허용 가능합니다.
+     */
+    uint32_t virtual_now_ms = 0;
+    uint32_t last_real_ms = 0;
+
     SmMsg msg;
     while (true) {
         // 큐 drain: tick당 최대 16개 dequeue
@@ -103,9 +121,13 @@ static void sm_task(void *) {
                  * 이 값들은 feed가 올 때만 판정에 쓰이므로 이 시점에 넣는 것이 정확합니다.
                  * alias 등 표시용 필드는 SM이 사용하지 않으며, 웹 UI가 REST로 직접 읽습니다.
                  * config 변경(모달 저장 등)은 캐시에 즉시 반영되므로 다음 feed부터 적용됩니다.
+                 *
+                 * msg.feed.now_ms는 BT manager가 캡쳐한 real time이지만, SM에는
+                 * 항상 virtual_now_ms를 넘깁니다 (페어링 일시정지 일관성).
+                 * 페어링 중엔 어차피 BLE 스캔이 멈춰서 feed가 안 옵니다.
                  */
                 sm.update_device_config(msg.feed.mac, device_config_get(msg.feed.mac));
-                sm.feed(msg.feed.mac, msg.feed.seen, msg.feed.now_ms, msg.feed.rssi);
+                sm.feed(msg.feed.mac, msg.feed.seen, virtual_now_ms, msg.feed.rssi);
                 break;
             case SmMsgType::RemoveDevice:
                 sm.remove_device(msg.remove.mac);
@@ -114,8 +136,15 @@ static void sm_task(void *) {
             if (++drained >= 16) break;
         }
 
-        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-        Action action = sm.tick(now_ms);
+        uint32_t real_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        // virtual time 진행: 첫 진입은 last_real_ms == 0 → delta 0.
+        // 페어링이 아닐 때만 virtual time이 흐릅니다.
+        if (last_real_ms != 0 && !bt_is_pairing()) {
+            virtual_now_ms += real_now_ms - last_real_ms;
+        }
+        last_real_ms = real_now_ms;
+
+        Action action = sm.tick(virtual_now_ms);
 
         // 스냅샷 갱신: 전역 배열에 직접 dump
         xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
@@ -130,11 +159,14 @@ static void sm_task(void *) {
          */
         if (action == Action::Unlock) {
             AppConfig current_cfg = app_config_get();
-            bool in_grace = (now_ms - start_ms) < kStartupGraceMs;
+            // grace는 real time 기준(부팅 직후 물리 시간). virtual time은 페어링
+            // 동안 멈추므로 grace 체크에 쓰면 부팅 직후 페어링을 열면 grace가
+            // 영원히 끝나지 않는 엣지 케이스가 생깁니다.
+            bool in_grace = (real_now_ms - start_ms) < kStartupGraceMs;
 
             if (in_grace) {
                 ESP_LOGI(TAG, "Unlock suppressed (grace %lums remaining)",
-                         (unsigned long)(kStartupGraceMs - (now_ms - start_ms)));
+                         (unsigned long)(kStartupGraceMs - (real_now_ms - start_ms)));
             } else if (!current_cfg.auto_unlock_enabled) {
                 ESP_LOGI(TAG, "Unlock suppressed (auto_unlock OFF)");
             } else if (bt_is_pairing()) {
