@@ -27,10 +27,10 @@ static constexpr uint8_t kDeviceConfigVersion = 1;
 
 struct DeviceConfig {
     uint8_t  version = kDeviceConfigVersion; // NVS blob 버전
-    int8_t   rssi_threshold = -70;
+    int8_t   rssi_threshold = -75;
     uint8_t  _pad[2] = {};              // 명시적 패딩 (Xtensa 4-byte 정렬)
-    uint32_t presence_timeout_ms = 15000;
-    uint32_t enter_window_ms = 5000;
+    uint32_t presence_timeout_ms = 40000;
+    uint32_t enter_window_ms = 10000;
     uint32_t enter_min_count = 3;
     char     alias[32] = {};            // 별명 (UTF-8, null-terminated)
 };
