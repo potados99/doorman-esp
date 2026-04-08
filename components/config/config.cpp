@@ -18,10 +18,18 @@ static bool is_alias_byte_allowed(unsigned char c) {
         // UTF-8 멀티바이트 (한글 등)
         return true;
     }
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return true;
-    if (c >= '0' && c <= '9') return true;
-    if (c == ' ' || c == '-' || c == '_') return true;
-    if (c == '(' || c == ')' || c == '+' || c == '\'' || c == '.') return true;
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+        return true;
+    }
+    if (c >= '0' && c <= '9') {
+        return true;
+    }
+    if (c == ' ' || c == '-' || c == '_') {
+        return true;
+    }
+    if (c == '(' || c == ')' || c == '+' || c == '\'' || c == '.') {
+        return true;
+    }
     return false;
 }
 
@@ -38,18 +46,30 @@ static bool is_alias_utf8_well_formed(const char *s, size_t max_len) {
     while (i < max_len && s[i] != '\0') {
         unsigned char c = static_cast<unsigned char>(s[i]);
         size_t need;
-        if      ((c & 0x80) == 0x00) need = 0;  // ASCII
-        else if ((c & 0xE0) == 0xC0) need = 1;
-        else if ((c & 0xF0) == 0xE0) need = 2;
-        else if ((c & 0xF8) == 0xF0) need = 3;
-        else return false;                       // 잘못된 lead byte (10xxxxxx 단독 등)
+        if ((c & 0x80) == 0x00) {
+            need = 0;  // ASCII
+        } else if ((c & 0xE0) == 0xC0) {
+            need = 1;
+        } else if ((c & 0xF0) == 0xE0) {
+            need = 2;
+        } else if ((c & 0xF8) == 0xF0) {
+            need = 3;
+        } else {
+            return false;  // 잘못된 lead byte (10xxxxxx 단독 등)
+        }
 
         // 연속 바이트 검증
         for (size_t k = 1; k <= need; ++k) {
-            if (i + k >= max_len) return false;
+            if (i + k >= max_len) {
+                return false;
+            }
             unsigned char cc = static_cast<unsigned char>(s[i + k]);
-            if (cc == '\0') return false;
-            if ((cc & 0xC0) != 0x80) return false;
+            if (cc == '\0') {
+                return false;
+            }
+            if ((cc & 0xC0) != 0x80) {
+                return false;
+            }
         }
         i += 1 + need;
     }
@@ -57,11 +77,21 @@ static bool is_alias_utf8_well_formed(const char *s, size_t max_len) {
 }
 
 bool validate_device_config(const DeviceConfig &cfg) {
-    if (cfg.version != kDeviceConfigVersion) return false;
-    if (cfg.rssi_threshold < -100 || cfg.rssi_threshold > 0) return false;
-    if (cfg.presence_timeout_ms < 1 || cfg.presence_timeout_ms > 60000) return false;
-    if (cfg.enter_window_ms < 1000 || cfg.enter_window_ms > 30000) return false;
-    if (cfg.enter_min_count < 1 || cfg.enter_min_count > 10) return false;
+    if (cfg.version != kDeviceConfigVersion) {
+        return false;
+    }
+    if (cfg.rssi_threshold < -100 || cfg.rssi_threshold > 0) {
+        return false;
+    }
+    if (cfg.presence_timeout_ms < 1 || cfg.presence_timeout_ms > 60000) {
+        return false;
+    }
+    if (cfg.enter_window_ms < 1000 || cfg.enter_window_ms > 30000) {
+        return false;
+    }
+    if (cfg.enter_min_count < 1 || cfg.enter_min_count > 10) {
+        return false;
+    }
 
     // alias null-termination 확인 및 문자 검증
     bool null_found = false;
@@ -74,10 +104,14 @@ bool validate_device_config(const DeviceConfig &cfg) {
             return false;
         }
     }
-    if (!null_found) return false;  // null-terminator 없음
+    if (!null_found) {
+        return false;  // null-terminator 없음
+    }
 
     // UTF-8 시퀀스 무결성 확인 (멀티바이트 경계가 깨지지 않았는지)
-    if (!is_alias_utf8_well_formed(cfg.alias, sizeof(cfg.alias))) return false;
+    if (!is_alias_utf8_well_formed(cfg.alias, sizeof(cfg.alias))) {
+        return false;
+    }
 
     return true;
 }

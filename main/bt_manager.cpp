@@ -639,7 +639,9 @@ static void neg_cache_add(const uint8_t *bda) {
 static int match_peer_by_addr_slow(const uint8_t *addr,
                                     const BlePeer *peers_snap, int peer_count) {
     for (int i = 0; i < peer_count; ++i) {
-        if (!peers_snap[i].valid) continue;
+        if (!peers_snap[i].valid) {
+            continue;
+        }
 
         /* 단계 1: identity와 직접 일치 — public addr peer 또는 identity 자체 */
         if (std::memcmp(addr, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0) {
@@ -679,7 +681,9 @@ static bool find_identity_for_connected_addr(const uint8_t *conn_addr,
     taskEXIT_CRITICAL(&s_state_lock);
 
     int idx = match_peer_by_addr_slow(conn_addr, peers_snap, peer_count);
-    if (idx < 0) return false;
+    if (idx < 0) {
+        return false;
+    }
 
     std::memcpy(out_identity, peers_snap[idx].identity_addr, ESP_BD_ADDR_LEN);
     return true;
@@ -722,7 +726,9 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
      * 비등록 기기 광고가 많은 환경에서 AES 부하를 대폭 줄입니다.
      */
     for (int i = 0; i < peer_count; ++i) {
-        if (!peers_snap[i].valid) continue;
+        if (!peers_snap[i].valid) {
+            continue;
+        }
         if (std::memcmp(scan_rst.bda, peers_snap[i].last_adv_addr, ESP_BD_ADDR_LEN) == 0) {
             matched_index = i;
             break;
@@ -771,7 +777,9 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
 void update_classic_presence(const uint8_t *bda, const uint8_t *name) {
     taskENTER_CRITICAL(&s_state_lock);
     for (int i = 0; i < s_classic_peer_count; ++i) {
-        if (!s_classic_peers[i].valid) continue;
+        if (!s_classic_peers[i].valid) {
+            continue;
+        }
 
         if (std::memcmp(bda, s_classic_peers[i].bda, ESP_BD_ADDR_LEN) == 0) {
             s_classic_peers[i].last_seen_tick = xTaskGetTickCount();
@@ -1288,17 +1296,25 @@ esp_err_t bt_manager_start() {
      */
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_bt_controller_init(&bt_cfg);
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BTDM);
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
     ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     ret = esp_bluedroid_enable();
-    if (ret != ESP_OK) return ret;
+    if (ret != ESP_OK) {
+        return ret;
+    }
 
     /* 콜백 등록 */
     ESP_RETURN_ON_ERROR(esp_bt_gap_register_callback(classic_gap_callback), kTag, "classic GAP register failed");
@@ -1380,7 +1396,9 @@ void bt_request_pairing() {
 }
 
 void bt_stop_pairing() {
-    if (s_bt_cmd_queue == nullptr) return;
+    if (s_bt_cmd_queue == nullptr) {
+        return;
+    }
 
     BtCmd cmd = {};
     cmd.type = BtCmdType::StopPairing;

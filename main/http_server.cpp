@@ -149,12 +149,18 @@ static QueryResult query_and_decode(const char *body, const char *key,
     // 인코딩 확장 계수 3 + 약간의 여유. 컴파일 시 상수라 스택 크기도 고정.
     char tmp[N * 3] = {};
     esp_err_t err = httpd_query_key_value(body, key, tmp, sizeof(tmp));
-    if (err == ESP_ERR_NOT_FOUND) return QueryResult::NotFound;
-    if (err != ESP_OK) return QueryResult::TooLong;  // TRUNC 포함
+    if (err == ESP_ERR_NOT_FOUND) {
+        return QueryResult::NotFound;
+    }
+    if (err != ESP_OK) {
+        return QueryResult::TooLong;  // TRUNC 포함
+    }
 
     url_decode(tmp);
     size_t len = strnlen(tmp, sizeof(tmp));
-    if (len >= N) return QueryResult::TooLong;
+    if (len >= N) {
+        return QueryResult::TooLong;
+    }
 
     memcpy(out, tmp, len);
     out[len] = '\0';
@@ -257,7 +263,9 @@ static void ws_sender_task(void *) {
                 taskEXIT_CRITICAL(&s_ws_lock);
 
                 for (int i = 0; i < kMaxWsClients; ++i) {
-                    if (fds[i] < 0) continue;
+                    if (fds[i] < 0) {
+                        continue;
+                    }
                     esp_err_t err = httpd_ws_send_frame_async(s_server, fds[i], &pkt);
                     if (err != ESP_OK) {
                         taskENTER_CRITICAL(&s_ws_lock);
@@ -306,13 +314,17 @@ static esp_err_t wifi_setup_handler(httpd_req_t *req) {
 // ── STA Handlers ──
 
 static esp_err_t index_page_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, index_html_start, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t door_open_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     /**
      * 이전: door_trigger_pulse() 직접 호출
@@ -323,7 +335,9 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
 }
 
 static esp_err_t auth_update_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -344,7 +358,9 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
 }
 
 static esp_err_t wifi_update_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -367,7 +383,9 @@ static esp_err_t wifi_update_handler(httpd_req_t *req) {
 }
 
 static esp_err_t ota_upload_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     esp_err_t result = ESP_FAIL;
     esp_ota_handle_t ota_handle = 0;
@@ -430,7 +448,9 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
         while (remaining > 0) {
             int to_read = std::min(remaining, static_cast<int>(sizeof(buf)));
             int received = httpd_req_recv(req, buf, to_read);
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
             if (received <= 0) {
                 ESP_LOGE(TAG, "recv failed: %d", received);
                 response_message = "Receive failed";
@@ -470,15 +490,21 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     return ESP_OK;
 
 cleanup:
-    if (ota_session_open) esp_ota_abort(ota_handle);
-    if (upload_claimed) upload_in_progress.store(false);
+    if (ota_session_open) {
+        esp_ota_abort(ota_handle);
+    }
+    if (upload_claimed) {
+        upload_in_progress.store(false);
+    }
     send_text(req, response_status, response_message);
     return result == ESP_OK ? ESP_FAIL : result;
 }
 
 /** 페어링 토글입니다. 꺼져있으면 켜고, 켜져있으면 끕니다. */
 static esp_err_t pairing_toggle_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
     if (bt_is_pairing()) {
         bt_stop_pairing();
         return send_text(req, "200 OK", "off");
@@ -489,7 +515,9 @@ static esp_err_t pairing_toggle_handler(httpd_req_t *req) {
 
 /** 페어링 현재 상태를 조회합니다. */
 static esp_err_t pairing_status_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
     return send_text(req, "200 OK", bt_is_pairing() ? "on" : "off");
 }
 
@@ -497,7 +525,9 @@ static esp_err_t pairing_status_handler(httpd_req_t *req) {
 extern bool is_safe_mode();
 
 static esp_err_t info_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     const esp_app_desc_t *desc = esp_app_get_description();
     char buf[192];
@@ -512,7 +542,9 @@ static esp_err_t info_handler(httpd_req_t *req) {
 
 /** 시스템 통계 조회. 힙 + 태스크 수. */
 static esp_err_t stats_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     SystemStats stats = monitor_get_stats();
     char buf[192];
@@ -533,7 +565,9 @@ static esp_err_t stats_handler(httpd_req_t *req) {
  * flash에 저장된 core dump가 있으면 JSON으로 반환합니다.
  */
 static esp_err_t coredump_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     esp_core_dump_summary_t summary = {};
     esp_err_t err = esp_core_dump_get_summary(&summary);
@@ -568,13 +602,17 @@ static esp_err_t coredump_handler(httpd_req_t *req) {
 
 /** WS 인증 토큰 발급. Basic Auth 뒤에 있으므로 인증된 사용자만 획득 가능. */
 static esp_err_t ws_token_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
     return send_text(req, "200 OK", s_ws_token);
 }
 
 /** 기기 재부팅. */
 static esp_err_t reboot_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     send_text(req, "200 OK", "Rebooting...");
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -584,7 +622,9 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
 
 /** BT 자동 문열림 토글. 현재 상태를 반전시키고 NVS에 저장합니다. */
 static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     AppConfig cfg = app_config_get();
     cfg.auto_unlock_enabled = !cfg.auto_unlock_enabled;
@@ -597,7 +637,9 @@ static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
 
 /** BT 자동 문열림 현재 상태 조회. */
 static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     AppConfig cfg = app_config_get();
     return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
@@ -608,13 +650,18 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
  * snprintf + chunked 전송, 힙 할당 없습니다.
  */
 static DeviceState *find_snapshot(DeviceState *snaps, int count, const uint8_t *mac) {
-    for (int i = 0; i < count; i++)
-        if (memcmp(snaps[i].mac, mac, 6) == 0) return &snaps[i];
+    for (int i = 0; i < count; i++) {
+        if (memcmp(snaps[i].mac, mac, 6) == 0) {
+            return &snaps[i];
+        }
+    }
     return nullptr;
 }
 
 static esp_err_t devices_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     uint8_t macs[kMaxTrackedDevices][6];
     int bond_count = bt_get_bonded_devices(macs, kMaxTrackedDevices);
@@ -660,7 +707,9 @@ static esp_err_t devices_handler(httpd_req_t *req) {
 
 /** 본딩된 기기 삭제. body: mac=AA:BB:CC:DD:EE:FF */
 static esp_err_t devices_delete_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     char body[64];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -679,7 +728,9 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
                     &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6) {
         return send_text(req, "400 Bad Request", "Invalid MAC format");
     }
-    for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(m[i]);
+    for (int i = 0; i < 6; ++i) {
+        mac[i] = static_cast<uint8_t>(m[i]);
+    }
 
     bt_remove_bond(reinterpret_cast<const uint8_t(&)[6]>(*mac));
     device_config_delete(reinterpret_cast<const uint8_t(&)[6]>(*mac));
@@ -689,7 +740,9 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
 
 /** 기기별 설정 저장. body: mac=AA:BB:CC:DD:EE:FF&alias=...&rssi=N&timeout=N&enter_window=N&enter_count=N */
 static esp_err_t devices_config_handler(httpd_req_t *req) {
-    if (!check_auth(req)) return ESP_OK;
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
 
     char body[256];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -707,7 +760,9 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
                &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6) {
         return send_text(req, "400 Bad Request", "Invalid MAC format");
     }
-    for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(m[i]);
+    for (int i = 0; i < 6; ++i) {
+        mac[i] = static_cast<uint8_t>(m[i]);
+    }
 
     // 현재 config를 기반으로 부분 업데이트
     DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
@@ -923,7 +978,9 @@ httpd_handle_t start_webserver(WifiMode mode) {
         }
     }
 
-    if (!ok) return nullptr;
+    if (!ok) {
+        return nullptr;
+    }
 
     ESP_LOGI(TAG, "HTTP server started (mode=%s, port=%d)",
              mode == WifiMode::SoftAP ? "SoftAP" : "STA", config.server_port);

@@ -133,7 +133,9 @@ static void sm_task(void *) {
                 sm.remove_device(msg.remove.mac);
                 break;
             }
-            if (++drained >= 16) break;
+            if (++drained >= 16) {
+                break;
+            }
         }
 
         uint32_t real_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
