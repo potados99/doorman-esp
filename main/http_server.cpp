@@ -666,11 +666,25 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
 
     char val[64] = {};
     {
-        char alias_val[sizeof(cfg.alias)] = {};
-        if (httpd_query_key_value(body, "alias", alias_val, sizeof(alias_val)) == ESP_OK) {
+        // URL 인코딩 시 한글 1글자가 9바이트(%XX%XX%XX)로 부풀어서
+        // 디코딩 전 버퍼는 cfg.alias 크기의 최소 3배가 필요합니다.
+        char alias_val[sizeof(cfg.alias) * 3 + 1] = {};
+        esp_err_t qerr = httpd_query_key_value(body, "alias", alias_val, sizeof(alias_val));
+        if (qerr == ESP_OK) {
             url_decode(alias_val);
-            snprintf(cfg.alias, sizeof(cfg.alias), "%s", alias_val);
+            size_t decoded_len = strlen(alias_val);
+            // 디코딩 결과가 버퍼(31바이트, null 포함 32) 초과면 명시적으로 거부합니다.
+            // 조용히 자르면 한글 UTF-8 경계 깨짐 + 사용자 의도와 다른 값이 저장됩니다.
+            if (decoded_len >= sizeof(cfg.alias)) {
+                return send_text(req, "400 Bad Request", "alias too long (max 31 bytes)");
+            }
+            memcpy(cfg.alias, alias_val, decoded_len);
+            cfg.alias[decoded_len] = '\0';
+        } else if (qerr == ESP_ERR_HTTPD_RESULT_TRUNC) {
+            // 인코딩된 길이가 97바이트 초과 — 한글 11자 이상이거나 비정상 입력.
+            return send_text(req, "400 Bad Request", "alias too long (max 31 bytes)");
         }
+        // ESP_ERR_NOT_FOUND: alias 필드 미포함 → 기존 값 유지.
     }
     if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
         cfg.rssi_threshold = (int8_t)atoi(val);
