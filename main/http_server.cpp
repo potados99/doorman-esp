@@ -230,13 +230,16 @@ static esp_err_t setup_page_handler(httpd_req_t *req) {
 }
 
 static esp_err_t wifi_setup_handler(httpd_req_t *req) {
-    char body[256];
+    // URL 인코딩 시 SSID(최대 32B)→96B, pass(최대 63B)→189B + 필드명/구분자.
+    // body 256B로는 특수문자 포함 시 초과. 512B로 상향.
+    char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char ssid[33] = {};
-    char pass[65] = {};
+    // 인코딩된 값을 받을 버퍼도 raw 최대의 3배 + 1.
+    char ssid[32 * 3 + 1] = {};
+    char pass[63 * 3 + 1] = {};
     if (httpd_query_key_value(body, "ssid", ssid, sizeof(ssid)) != ESP_OK || ssid[0] == '\0') {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
@@ -272,13 +275,15 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
 static esp_err_t auth_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    char body[256];
+    // URL 인코딩 시 user(최대 31B)→93B, pass(최대 63B)→189B + 필드명/구분자.
+    // body 512B로 상향하여 인코딩된 값을 수용합니다.
+    char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char user[32] = {};
-    char pass[64] = {};
+    char user[31 * 3 + 1] = {};
+    char pass[63 * 3 + 1] = {};
     if (httpd_query_key_value(body, "user", user, sizeof(user)) != ESP_OK || user[0] == '\0') {
         return send_text(req, "400 Bad Request", "Username is required");
     }
@@ -295,13 +300,14 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
 static esp_err_t wifi_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
-    char body[256];
+    // URL 인코딩 대응: wifi_setup_handler와 동일한 버퍼 정책.
+    char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char ssid[33] = {};
-    char pass[65] = {};
+    char ssid[32 * 3 + 1] = {};
+    char pass[63 * 3 + 1] = {};
     if (httpd_query_key_value(body, "ssid", ssid, sizeof(ssid)) != ESP_OK || ssid[0] == '\0') {
         return send_text(req, "400 Bad Request", "SSID is required");
     }
@@ -616,7 +622,10 @@ static esp_err_t devices_delete_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    char mac_str[24] = {};
+    // URL 인코딩 시 콜론 5개가 %3A로 부풀어 최대 33바이트(27 + null 여유).
+    // 24바이트 버퍼로는 ESP_ERR_HTTPD_RESULT_TRUNC가 반환되어 "mac required"로
+    // 잘못 응답하던 버그가 있었음. devices_config_handler와 동일하게 36으로.
+    char mac_str[36] = {};
     if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
         return send_text(req, "400 Bad Request", "mac parameter is required");
     }
