@@ -212,12 +212,14 @@ r.onload = function() {
         document.head.appendChild(s);
     }
 
-    // body 내용 추출 (script 제외)
+    // body 내용 추출 (script 제외) — dialog를 포함하므로 body에 직접 삽입
     var bodyMatch = html.match(/<body>([\s\S]*?)<script>/);
     if (bodyMatch) {
-        var container = document.createElement('div');
-        container.innerHTML = bodyMatch[1];
-        document.body.appendChild(container);
+        var tmp = document.createElement('div');
+        tmp.innerHTML = bodyMatch[1];
+        while (tmp.firstChild) {
+            document.body.appendChild(tmp.firstChild);
+        }
     }
 
     // script 추출 및 실행
