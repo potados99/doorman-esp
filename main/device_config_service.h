@@ -7,9 +7,7 @@
  *
  * NVS namespace "dev", key: MAC 12자리 대문자 hex (예: "842F57A0C4EA").
  * 최대 15개 기기 설정을 인메모리 캐시로 관리하며, FreeRTOS mutex로 보호한다.
- *
- * device_config_changed()는 atomic consume flag로, 변경 여부를 poll하는
- * 태스크(control_task 등)가 사용한다.
+ * NVS I/O는 백그라운드 태스크에서 비동기로 처리되어 호출자를 블로킹하지 않는다.
  */
 
 /**
@@ -33,11 +31,10 @@ DeviceConfig device_config_get(const uint8_t (&mac)[6]);
 bool device_config_exists(const uint8_t (&mac)[6]);
 
 /**
- * 지정한 MAC 주소의 DeviceConfig를 업데이트하고 NVS에 저장한다.
+ * 지정한 MAC 주소의 DeviceConfig를 업데이트한다.
  *
- * invalid 값은 거부한다. 캐시는 항상 최신 상태를 유지하며,
- * NVS 저장 실패 시 로그를 남기되 캐시 반영은 유지한다.
- * 성공 시 s_changed = true.
+ * invalid 값은 거부한다. 캐시는 mutex 안에서 즉시 업데이트되며,
+ * NVS 저장은 비동기로 백그라운드에서 수행된다.
  */
 void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg);
 
@@ -45,7 +42,7 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg);
  * 지정한 MAC 주소의 DeviceConfig를 캐시 및 NVS에서 삭제한다.
  *
  * 존재하지 않는 키 삭제는 조용히 무시한다.
- * 삭제 후 s_changed = true.
+ * 캐시는 즉시 삭제되며, NVS 삭제는 비동기로 백그라운드에서 수행된다.
  */
 void device_config_delete(const uint8_t (&mac)[6]);
 

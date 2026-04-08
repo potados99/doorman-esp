@@ -5,7 +5,9 @@
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <nvs.h>
 
 static const char *TAG = "dev_cfg_svc";
@@ -28,6 +30,18 @@ struct DeviceConfigEntry {
 
 static DeviceConfigEntry   s_entries[kMaxEntries] = {};
 static SemaphoreHandle_t   s_mutex                = nullptr;
+
+// ── 비동기 NVS 쓰기 큐 ───────────────────────────────────────────────────────
+
+enum class CfgCmdType : uint8_t { Set, Delete };
+
+struct CfgCmd {
+    CfgCmdType type;
+    uint8_t    mac[6];
+    DeviceConfig config;  // Set 시에만 사용
+};
+
+static QueueHandle_t s_queue = nullptr;
 
 // ── 내부 유틸리티 ────────────────────────────────────────────────────────────
 
@@ -147,6 +161,26 @@ static bool erase_key_from_nvs(nvs_handle_t handle, const char *key) {
     return true;
 }
 
+// ── 백그라운드 NVS 쓰기 태스크 ──────────────────────────────────────────────
+
+/**
+ * NVS I/O를 비동기로 처리하는 백그라운드 태스크.
+ * set()/delete()가 큐에 넣은 CfgCmd를 꺼내 실제 NVS 쓰기를 수행한다.
+ */
+static void cfg_nvs_task(void *) {
+    CfgCmd cmd;
+    while (true) {
+        if (xQueueReceive(s_queue, &cmd, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        if (cmd.type == CfgCmdType::Set) {
+            save_entry_to_nvs(reinterpret_cast<const uint8_t(&)[6]>(cmd.mac), cmd.config);
+        } else {
+            delete_entry_from_nvs(reinterpret_cast<const uint8_t(&)[6]>(cmd.mac));
+        }
+    }
+}
+
 // ── init 시 NVS 전체 로드 ────────────────────────────────────────────────────
 
 /**
@@ -261,6 +295,21 @@ void device_config_service_init() {
     configASSERT(s_mutex);
 
     load_all_from_nvs();
+
+    s_queue = xQueueCreate(8, sizeof(CfgCmd));
+    configASSERT(s_queue);
+
+    BaseType_t ok = xTaskCreatePinnedToCore(
+        cfg_nvs_task,
+        "cfg_nvs",
+        2048,
+        nullptr,
+        3,
+        nullptr,
+        tskNO_AFFINITY);
+    configASSERT(ok == pdPASS);
+
+    ESP_LOGI(TAG, "NVS write task started");
 }
 
 DeviceConfig device_config_get(const uint8_t (&mac)[6]) {
@@ -308,10 +357,15 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     }
     entry->config = cfg;
 
-    save_entry_to_nvs(mac, cfg);
-
     xSemaphoreGive(s_mutex);
 
+    CfgCmd cmd = {};
+    cmd.type = CfgCmdType::Set;
+    memcpy(cmd.mac, mac, 6);
+    cmd.config = cfg;
+    if (xQueueSend(s_queue, &cmd, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "Config write queue full — NVS write dropped");
+    }
 }
 
 void device_config_delete(const uint8_t (&mac)[6]) {
@@ -322,10 +376,14 @@ void device_config_delete(const uint8_t (&mac)[6]) {
         memset(entry, 0, sizeof(DeviceConfigEntry));
     }
 
-    delete_entry_from_nvs(mac);
-
     xSemaphoreGive(s_mutex);
 
+    CfgCmd cmd = {};
+    cmd.type = CfgCmdType::Delete;
+    memcpy(cmd.mac, mac, 6);
+    if (xQueueSend(s_queue, &cmd, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "Config write queue full — NVS delete dropped");
+    }
 }
 
 int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max) {

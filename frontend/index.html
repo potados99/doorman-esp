@@ -322,6 +322,7 @@
 </div>
 <div class="hdr-meta">
     <span id="buildInfo">loading...</span> · <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
+    <br><span id="sysStats" style="font-size:0.68rem;color:#c4c4c4;"></span>
 </div>
 
 <div id="safeBanner" class="safe-banner" style="display:none;">
@@ -1255,6 +1256,24 @@ wsConnect();
     };
     xhr.send();
 })();
+
+// 시스템 통계 폴링
+setInterval(function() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/stats');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                var s = JSON.parse(xhr.responseText);
+                var heapMB = (s.free_heap / 1024).toFixed(0);
+                var minMB = (s.min_free_heap / 1024).toFixed(0);
+                document.getElementById('sysStats').textContent =
+                    'heap ' + heapMB + 'K / min ' + minMB + 'K · tasks ' + s.task_count;
+            } catch(e) {}
+        }
+    };
+    xhr.send();
+}, 3000);
 </script>
 </body>
 </html>

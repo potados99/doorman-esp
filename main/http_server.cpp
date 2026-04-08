@@ -4,6 +4,7 @@
 #include "control_task.h"
 #include "device_config_service.h"
 #include "door_control.h"
+#include "monitor_task.h"
 #include "nvs_config.h"
 #include "sm_task.h"
 
@@ -457,6 +458,21 @@ static esp_err_t info_handler(httpd_req_t *req) {
     return httpd_resp_sendstr(req, buf);
 }
 
+/** 시스템 통계 조회. 힙 + 태스크 수. */
+static esp_err_t stats_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    SystemStats stats = monitor_get_stats();
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "{\"free_heap\":%lu,\"min_free_heap\":%lu,\"task_count\":%d}",
+             (unsigned long)stats.free_heap,
+             (unsigned long)stats.min_free_heap,
+             stats.task_count);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 /** WS 인증 토큰 발급. Basic Auth 뒤에 있으므로 인증된 사용자만 획득 가능. */
 static esp_err_t ws_token_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
@@ -792,6 +808,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/pairing/toggle",        HTTP_POST, pairing_toggle_handler,      false},
             {"/api/pairing/status",        HTTP_GET,  pairing_status_handler,      false},
             {"/api/info",                   HTTP_GET,  info_handler,                false},
+            {"/api/stats",                 HTTP_GET,  stats_handler,               false},
             {"/api/ws-token",              HTTP_GET,  ws_token_handler,            false},
             {"/api/reboot",                HTTP_POST, reboot_handler,              false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
@@ -801,7 +818,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 16);
+        ok = register_routes(server, sta_routes, 17);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

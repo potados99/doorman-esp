@@ -18,23 +18,21 @@ static const char *TAG = "sm";
 /**
  * 큐 메시지 타입.
  */
-enum class SmMsgType { Feed, RemoveDevice, CreateConfig };
+enum class SmMsgType { Feed, RemoveDevice };
 
 /**
  * 큐로 전달되는 메시지.
  * Feed: BT Manager → SM Task 감지 이벤트.
  * RemoveDevice: 슬롯 제거 요청.
- * CreateConfig: 기기별 config 생성 요청 (NVS 저장 → SM 반영).
  */
 struct SmMsg {
     SmMsgType type;
     union {
         struct { uint8_t mac[6]; bool seen; uint32_t now_ms; int8_t rssi; } feed;
         struct { uint8_t mac[6]; } remove;
-        struct { uint8_t mac[6]; char alias[32]; } create_config;
     };
 };
-static_assert(sizeof(SmMsg) <= 48, "SmMsg too large for queue");
+static_assert(sizeof(SmMsg) <= 24, "SmMsg too large for queue");
 
 /**
  * 큐 깊이 16: BLE 스캔은 짧은 시간에 여러 advertising을 수신할 수 있으므로
@@ -98,25 +96,6 @@ static void sm_task(void *) {
             case SmMsgType::RemoveDevice:
                 sm.remove_device(msg.remove.mac);
                 break;
-            case SmMsgType::CreateConfig: {
-                uint8_t mac[6];
-                std::memcpy(mac, msg.create_config.mac, 6);
-                DeviceConfig dev_cfg = device_config_get(mac);
-
-                if (!device_config_exists(mac)) {
-                    // 최초 페어링이면 기본 설정 + alias를 저장한다.
-                    snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
-                    device_config_set(mac, dev_cfg);
-                    break;
-                }
-
-                // 이미 존재하는 config는 threshold를 보존하고 alias가 비어있을 때만 채운다.
-                if (dev_cfg.alias[0] == '\0' && msg.create_config.alias[0] != '\0') {
-                    snprintf(dev_cfg.alias, sizeof(dev_cfg.alias), "%s", msg.create_config.alias);
-                    device_config_set(mac, dev_cfg);
-                }
-                break;
-            }
             }
             if (++drained >= 16) break;
         }
@@ -203,22 +182,6 @@ void sm_remove_device_queue_send(const uint8_t (&mac)[6]) {
 
     if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
         ESP_LOGW(TAG, "SM queue full — remove_device event dropped");
-    }
-}
-
-void sm_create_config_queue_send(const uint8_t (&mac)[6], const char *alias) {
-    if (s_queue == nullptr) {
-        ESP_LOGE(TAG, "SM queue not initialized");
-        return;
-    }
-
-    SmMsg msg = {};
-    msg.type = SmMsgType::CreateConfig;
-    std::memcpy(msg.create_config.mac, mac, 6);
-    snprintf(msg.create_config.alias, sizeof(msg.create_config.alias), "%s", alias);
-
-    if (xQueueSend(s_queue, &msg, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "SM queue full — create_config event dropped");
     }
 }
 

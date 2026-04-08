@@ -36,14 +36,6 @@ void sm_feed_queue_send(const uint8_t (&mac)[6], bool seen, uint32_t now_ms, int
 void sm_remove_device_queue_send(const uint8_t (&mac)[6]);
 
 /**
- * 기기별 config 생성 메시지를 SM 태스크 큐에 전송한다.
- *
- * SM 태스크가 device_config_set()을 호출하여 NVS에 저장하고,
- * 다음 루프에서 device_config_changed() 감지 → SM에 반영된다.
- */
-void sm_create_config_queue_send(const uint8_t (&mac)[6], const char *alias);
-
-/**
  * 현재 SM이 추적 중인 기기 상태 스냅샷을 복사한다.
  *
  * out에 DeviceState 배열을 복사하며, 반환값은 실제 복사된 항목 수.

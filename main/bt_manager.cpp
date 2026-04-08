@@ -1,4 +1,5 @@
 #include "bt_manager.h"
+#include "device_config_service.h"
 #include "sm_task.h"
 
 #include <array>
@@ -870,10 +871,15 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             ESP_LOGI(kTag, "%s paired %s", addr_str,
                      reinterpret_cast<const char *>(param->auth_cmpl.device_name));
             refresh_classic_bond_cache();
-            // SM 큐로 config 생성 요청 (BTU 블로킹 방지)
-            sm_create_config_queue_send(
-                reinterpret_cast<const uint8_t(&)[6]>(*param->auth_cmpl.bda),
-                reinterpret_cast<const char *>(param->auth_cmpl.device_name));
+            {
+                const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*param->auth_cmpl.bda);
+                DeviceConfig cfg = device_config_get(mac);
+                if (cfg.alias[0] == '\0') {
+                    snprintf(cfg.alias, sizeof(cfg.alias), "%s",
+                             reinterpret_cast<const char *>(param->auth_cmpl.device_name));
+                }
+                device_config_set(mac, cfg);
+            }
         } else {
             ESP_LOGE(kTag, "Classic auth failed: status=%d", param->auth_cmpl.stat);
         }
@@ -1073,10 +1079,13 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
                  addr_str,
                  param->ble_security.auth_cmpl.addr_type);
         if (param->ble_security.auth_cmpl.success) {
-            // BLE는 device_name 미제공, alias 빈 문자열
-            sm_create_config_queue_send(
-                reinterpret_cast<const uint8_t(&)[6]>(*param->ble_security.auth_cmpl.bd_addr),
-                "");
+            {
+                const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*param->ble_security.auth_cmpl.bd_addr);
+                if (!device_config_exists(mac)) {
+                    DeviceConfig cfg = {};
+                    device_config_set(mac, cfg);
+                }
+            }
         } else {
             ESP_LOGI(kTag, "BLE pairing failed, reason=0x%x", param->ble_security.auth_cmpl.fail_reason);
         }

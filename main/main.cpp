@@ -4,6 +4,7 @@
 #include "door_control.h"
 #include "http_server.h"
 #include "device_config_service.h"
+#include "monitor_task.h"
 #include "sm_task.h"
 #include "wifi.h"
 
@@ -134,6 +135,9 @@ extern "C" void app_main(void) {
 
     // BT Manager: 듀얼모드 presence 감지 + 페어링
     ESP_ERROR_CHECK(bt_manager_start());
+
+    // 시스템 모니터: 힙/태스크 상태 주기 로그
+    monitor_task_start();
 
     // 정상 부팅 후 60초 뒤 panic 카운터 리셋 (안정 확정)
     const esp_timer_create_args_t timer_args = {
