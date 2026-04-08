@@ -595,15 +595,75 @@ static void neg_cache_add(const uint8_t *bda) {
 }
 
 /**
+ * 주어진 BLE 주소가 본딩된 peer 중 누구의 것인지 찾는 **공통 slow-path
+ * 매칭 로직**입니다.
+ *
+ * ── 왜 필요한가 ──────────────────────────────────────────────────
+ * BLE는 privacy를 위해 대부분의 현대 스마트폰이 RPA(Resolvable Private
+ * Address)를 씁니다 — ~15분마다 랜덤으로 바뀌는 주소. 수신한 주소만으로는
+ * "이게 본딩한 그 폰인지" 알 수 없고, 본딩 시 교환한 **IRK**로 AES 연산을
+ * 돌려 확인해야 합니다.
+ *
+ * 이 "주소 → 본딩 peer 매핑" 작업은 이 코드베이스에서 두 번 발생합니다:
+ *   (1) 스캔 경로 (update_ble_presence) — 매 광고마다 "아는 기기냐?"
+ *   (2) 페어링 직후 (find_identity_for_connected_addr via auth_cmpl) —
+ *       "방금 접속한 이 주소의 진짜 identity는?"
+ * 두 경로 모두 동일한 질문·동일한 알고리즘이므로 한 함수로 수렴시킵니다.
+ * BLE 주소 타입·프라이버시 규격이 바뀌면 이 함수 한 곳만 손보면 양쪽이
+ * 동시에 업데이트됩니다 (essential duplication 제거).
+ *
+ * ── 매칭 알고리즘 ────────────────────────────────────────────────
+ * peer 리스트를 index 순서로 순회하며 **첫 번째 매칭**을 반환:
+ *   단계 1: `addr` == `peers_snap[i].identity_addr` (memcmp)
+ *     → public address peer, 또는 RPA가 아닌 연결. 가장 흔한 케이스.
+ *   단계 2: peer가 IRK를 보유(`has_identity_key`)하면
+ *           `resolve_rpa_with_irk(addr, peer.irk)` 시도.
+ *     → RPA 연결. ESP32 하드웨어 AES를 사용해 수십 μs 내 판정.
+ *
+ * 두 단계 모두 실패하면 다음 peer로. 전부 실패하면 -1 반환.
+ *
+ * ── 스레드 안전성 (중요) ─────────────────────────────────────────
+ * 이 함수는 순수 함수입니다 — `peers_snap`/`peer_count`만 읽고 전역 상태
+ * (s_ble_peers, s_ble_peer_count 등)를 건드리지 않습니다. 호출자가
+ * **반드시 크리티컬 섹션 밖에서** 호출해야 합니다:
+ *   `resolve_rpa_with_irk`가 내부적으로 하드웨어 AES mutex를 잡으므로,
+ *   `taskENTER_CRITICAL` 상태에서 호출하면 데드락 발생 가능.
+ * 호출자는 먼저 `taskENTER_CRITICAL`로 peers를 로컬 배열에 snapshot한 뒤
+ * `taskEXIT_CRITICAL`하고 이 함수를 부르는 패턴을 써야 합니다.
+ *
+ * ── 반환값 ──────────────────────────────────────────────────────
+ *   0 ≤ i < peer_count : 매칭된 peer의 인덱스. 호출자는
+ *                        `peers_snap[i].identity_addr`로 identity 획득.
+ *   -1                  : 매칭 실패 (본딩되지 않은 주소).
+ */
+static int match_peer_by_addr_slow(const uint8_t *addr,
+                                    const BlePeer *peers_snap, int peer_count) {
+    for (int i = 0; i < peer_count; ++i) {
+        if (!peers_snap[i].valid) continue;
+
+        /* 단계 1: identity와 직접 일치 — public addr peer 또는 identity 자체 */
+        if (std::memcmp(addr, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0) {
+            return i;
+        }
+
+        /* 단계 2: RPA — IRK로 resolve 시도 (IRK 없는 peer는 스킵) */
+        if (peers_snap[i].has_identity_key &&
+            resolve_rpa_with_irk(addr, peers_snap[i].irk)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/**
  * 연결 주소(RPA일 수 있음)로부터 peer 캐시의 identity address를 찾습니다.
  *
- * 페어링 완료 직후 `auth_cmpl.bd_addr`를 peer 캐시의 `identity_addr` 또는
- * IRK resolve를 통해 static identity에 매핑합니다. 성공하면 `out_identity`에
- * 실제 identity 주소를 채우고 true를 반환합니다.
+ * 페어링 완료 직후 `auth_cmpl.bd_addr`를 peer 캐시의 `identity_addr`에
+ * 매핑합니다. 성공하면 `out_identity`에 실제 identity 주소를 채우고 true를
+ * 반환합니다.
  *
  * 호출 전에 반드시 `refresh_ble_bond_cache()`로 peer 캐시가 최신 상태여야
- * 합니다. 크리티컬 섹션 안에서 AES 연산을 피하도록 먼저 스냅샷을 뜬 뒤
- * 섹션 밖에서 resolve합니다 (update_ble_presence와 동일 패턴).
+ * 합니다. 스냅샷을 뜬 뒤 match_peer_by_addr_slow를 호출하는 thin wrapper입니다.
  */
 static bool find_identity_for_connected_addr(const uint8_t *conn_addr,
                                                uint8_t out_identity[ESP_BD_ADDR_LEN]) {
@@ -618,23 +678,11 @@ static bool find_identity_for_connected_addr(const uint8_t *conn_addr,
     std::memcpy(peers_snap, s_ble_peers, sizeof(peers_snap));
     taskEXIT_CRITICAL(&s_state_lock);
 
-    for (int i = 0; i < peer_count; ++i) {
-        if (!peers_snap[i].valid) continue;
+    int idx = match_peer_by_addr_slow(conn_addr, peers_snap, peer_count);
+    if (idx < 0) return false;
 
-        /* Public address peer, 또는 RPA가 아닌 연결 — identity와 직접 일치 */
-        if (std::memcmp(conn_addr, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0) {
-            std::memcpy(out_identity, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN);
-            return true;
-        }
-
-        /* RPA 연결 — IRK로 resolve 시도 */
-        if (peers_snap[i].has_identity_key &&
-            resolve_rpa_with_irk(conn_addr, peers_snap[i].irk)) {
-            std::memcpy(out_identity, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN);
-            return true;
-        }
-    }
-    return false;
+    std::memcpy(out_identity, peers_snap[idx].identity_addr, ESP_BD_ADDR_LEN);
+    return true;
 }
 
 /**
@@ -681,21 +729,10 @@ void update_ble_presence(const esp_ble_gap_cb_param_t::ble_scan_result_evt_param
         }
     }
 
-    /* 패스트패스 실패 시 identity address 직접 비교 + IRK resolve 폴백 */
+    /* 패스트패스 실패 시 공통 slow path — identity 직접 비교 + IRK resolve.
+     * find_identity_for_connected_addr와 동일 로직을 공유합니다. */
     if (matched_index < 0) {
-        for (int i = 0; i < peer_count; ++i) {
-            if (!peers_snap[i].valid) continue;
-
-            bool matched = std::memcmp(scan_rst.bda, peers_snap[i].identity_addr, ESP_BD_ADDR_LEN) == 0;
-            if (!matched && peers_snap[i].has_identity_key) {
-                matched = resolve_rpa_with_irk(scan_rst.bda, peers_snap[i].irk);
-            }
-
-            if (matched) {
-                matched_index = i;
-                break;
-            }
-        }
+        matched_index = match_peer_by_addr_slow(scan_rst.bda, peers_snap, peer_count);
     }
 
     if (matched_index < 0) {
