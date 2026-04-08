@@ -29,15 +29,14 @@ static void monitor_task(void *) {
 }
 
 void monitor_task_start() {
-    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
+    BaseType_t ok = xTaskCreatePinnedToCore(
         monitor_task,
         "monitor",
         2048,
         nullptr,
         1,
         nullptr,
-        tskNO_AFFINITY,
-        MALLOC_CAP_SPIRAM);
+        tskNO_AFFINITY);
     configASSERT(ok == pdPASS);
 
     ESP_LOGI(TAG, "Monitor task started");

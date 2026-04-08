@@ -301,15 +301,14 @@ void device_config_service_init() {
     s_queue = xQueueCreate(8, sizeof(CfgCmd));
     configASSERT(s_queue);
 
-    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
+    BaseType_t ok = xTaskCreatePinnedToCore(
         cfg_nvs_task,
         "cfg_nvs",
         2048,
         nullptr,
         3,
         nullptr,
-        tskNO_AFFINITY,
-        MALLOC_CAP_SPIRAM);
+        tskNO_AFFINITY);
     configASSERT(ok == pdPASS);
 
     ESP_LOGI(TAG, "NVS write task started");
