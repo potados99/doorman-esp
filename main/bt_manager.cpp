@@ -1,5 +1,4 @@
 #include "bt_manager.h"
-#include "device_config_service.h"
 #include "sm_task.h"
 
 #include <array>
@@ -977,17 +976,6 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
             ESP_LOGI(kTag, "%s paired %s", addr_str,
                      reinterpret_cast<const char *>(param->auth_cmpl.device_name));
             refresh_classic_bond_cache();
-            {
-                const uint8_t (&mac)[6] = param->auth_cmpl.bda;
-                DeviceConfig cfg = device_config_get(mac);
-                if (cfg.alias[0] == '\0') {
-                    strncpy(cfg.alias,
-                            reinterpret_cast<const char *>(param->auth_cmpl.device_name),
-                            sizeof(cfg.alias) - 1);
-                    cfg.alias[sizeof(cfg.alias) - 1] = '\0';
-                }
-                device_config_set(mac, cfg);
-            }
         } else {
             ESP_LOGE(kTag, "Classic auth failed: status=%d", param->auth_cmpl.stat);
         }
@@ -1220,35 +1208,20 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
             refresh_ble_bond_cache();
 
             uint8_t identity[ESP_BD_ADDR_LEN] = {};
-            bool have_identity = find_identity_for_connected_addr(
-                param->ble_security.auth_cmpl.bd_addr, identity);
-
-            /* identity resolve 실패 시 원래 conn addr로 fallback */
-            const uint8_t *use_addr = have_identity
-                ? identity
-                : param->ble_security.auth_cmpl.bd_addr;
+            if (!find_identity_for_connected_addr(
+                    param->ble_security.auth_cmpl.bd_addr, identity)) {
+                /* 정상 상황에선 발생 불가 — btc_dm이 NVS flush 후 콜백 dispatch
+                 * (btc_dm.c:918). 여기 진입하면 ESP-IDF 내부 순서 변경이나
+                 * bond 저장 실패 등 예상 외 상황. 안전망으로 conn addr 그대로 사용. */
+                ESP_LOGW(kTag, "BLE auth: identity unresolved, using conn addr");
+                std::memcpy(identity, param->ble_security.auth_cmpl.bd_addr,
+                            ESP_BD_ADDR_LEN);
+            }
 
             char addr_str[18] = {};
-            bda_to_str(use_addr, addr_str, sizeof(addr_str));
-            if (!have_identity) {
-                /* auth_cmpl 시점에는 btc_dm이 NVS flush를 이미 끝냈으므로 identity
-                 * resolve는 정상적으로 실패할 이유가 없음. 여기 진입하면 ESP-IDF
-                 * 내부 순서 변경이나 bond 저장 실패 등 예상 외 상황이므로 경고. */
-                ESP_LOGW(kTag, "BLE auth complete: identity unresolved for conn_addr=%s "
-                               "(fallback to conn addr; check btc_dm flush order)",
-                         addr_str);
-            }
+            bda_to_str(identity, addr_str, sizeof(addr_str));
             ESP_LOGI(kTag, "BLE auth complete: success=yes addr=%s addr_type=%u",
-                     addr_str,
-                     param->ble_security.auth_cmpl.addr_type);
-
-            /* use_addr는 6바이트 포인터(identity 또는 bd_addr, 둘 다 ESP_BD_ADDR_LEN==6
-             * 보장). 배열 참조로 묶기 위해 reinterpret_cast 필요. */
-            const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*use_addr);
-            if (!device_config_exists(mac)) {
-                DeviceConfig cfg = {};
-                device_config_set(mac, cfg);
-            }
+                     addr_str, param->ble_security.auth_cmpl.addr_type);
         } else if (success) {
             /* 페어링 모드 밖에서 발사된 인증 성공 = 재연결(저장된 LTK로 link
              * encryption만 재수립). 프론트엔드 페어링 모달 regex
