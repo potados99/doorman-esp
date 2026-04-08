@@ -16,9 +16,9 @@ static void monitor_task(void *) {
         s_stats.min_free_heap = esp_get_minimum_free_heap_size();
         s_stats.task_count = uxTaskGetNumberOfTasks();
 
-        ESP_LOGI(TAG, "heap=%lu min=%lu tasks=%d",
+        ESP_LOGI(TAG, "heap=%lu/%lu tasks=%d",
                  (unsigned long)s_stats.free_heap,
-                 (unsigned long)s_stats.min_free_heap,
+                 (unsigned long)s_stats.total_heap,
                  s_stats.task_count);
 
         vTaskDelay(pdMS_TO_TICKS(1000));

@@ -1084,6 +1084,16 @@ function processWsData(data) {
 
         var sm = l.match(/sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/);
         if (sm) { updateCardState(sm[1], sm[2], l); continue; }
+
+        var mon = l.match(/monitor: heap=(\d+)\/(\d+) tasks=(\d+)/);
+        if (mon) {
+            var freeK = (parseInt(mon[1]) / 1024).toFixed(0);
+            var totalK = (parseInt(mon[2]) / 1024).toFixed(0);
+            var pct = parseInt(mon[2]) > 0 ? Math.round(parseInt(mon[1]) / parseInt(mon[2]) * 100) : 0;
+            document.getElementById('sysStats').textContent =
+                'heap ' + freeK + 'K/' + totalK + 'K (' + pct + '%) · tasks ' + mon[3];
+            continue;
+        }
     }
 
     if (tagUpdated) renderTagFilters();
@@ -1241,24 +1251,6 @@ wsConnect();
     xhr.send();
 })();
 
-// 시스템 통계 폴링
-setInterval(function() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/stats');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            try {
-                var s = JSON.parse(xhr.responseText);
-                var freeK = (s.free_heap / 1024).toFixed(0);
-                var totalK = (s.total_heap / 1024).toFixed(0);
-                var pct = s.total_heap > 0 ? Math.round(s.free_heap / s.total_heap * 100) : 0;
-                document.getElementById('sysStats').textContent =
-                    'heap ' + freeK + 'K/' + totalK + 'K (' + pct + '%) · tasks ' + s.task_count;
-            } catch(e) {}
-        }
-    };
-    xhr.send();
-}, 3000);
 </script>
 </body>
 </html>
