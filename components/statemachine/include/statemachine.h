@@ -6,7 +6,15 @@
 #include <cstdint>
 #include <cstring>
 
-/** 최대 추적 가능 기기 수. SM, device_config_service, httpd에서 공유. */
+/**
+ * 최대 추적 가능 기기 수. SM, device_config_service, httpd에서 공유.
+ *
+ * 실제 슬롯 상한은 ESP-IDF `CONFIG_BT_SMP_MAX_BONDS`(BLE+Classic 합산)가 결정합니다.
+ * 이 헤더는 host_test 빌드(pc-side gtest)에서도 include되므로 sdkconfig에 직접
+ * 의존하지 않고 **literal**로 유지합니다. 대신 타깃 빌드(main/sm_task.cpp)에서
+ * `static_assert(kMaxTrackedDevices == CONFIG_BT_SMP_MAX_BONDS, ...)`로 두 값의
+ * 일치를 컴파일 시점에 강제합니다.
+ */
 static constexpr int kMaxTrackedDevices = 15;
 
 /**

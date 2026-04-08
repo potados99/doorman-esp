@@ -47,8 +47,17 @@ constexpr uint32_t kBleFixedPasskey = 123456;
 constexpr TickType_t kPairingLogInterval = pdMS_TO_TICKS(5000);
 constexpr TickType_t kLoopDelay = pdMS_TO_TICKS(100);
 constexpr TickType_t kClassicProbeRetryDelay = pdMS_TO_TICKS(200);
-constexpr int kMaxBleBondedDevices = 15;
-constexpr int kMaxClassicBondedDevices = 15;
+
+/**
+ * 본딩 슬롯 상한. ESP-IDF의 CONFIG_BT_SMP_MAX_BONDS가 BLE+Classic **합산** 상한을
+ * 결정하므로, 각 종류별 배열도 같은 상한으로 잡아야 "최악의 경우 전부 한 종류"
+ * 시나리오에서도 수용 가능합니다. 단일 진실원: sdkconfig.h의 CONFIG_BT_SMP_MAX_BONDS.
+ * 이 값을 바꾸면 device_config_service의 kMaxEntries와 statemachine의
+ * kMaxTrackedDevices도 자동으로 따라가야 함 — static_assert로 강제합니다
+ * (device_config_service.cpp, sm_task.cpp 참조).
+ */
+constexpr int kMaxBleBondedDevices = CONFIG_BT_SMP_MAX_BONDS;
+constexpr int kMaxClassicBondedDevices = CONFIG_BT_SMP_MAX_BONDS;
 constexpr uint16_t kClassicPageTimeout = 0x0100;  // 160 ms
 
 constexpr esp_spp_mode_t kSppMode = ESP_SPP_MODE_CB;
@@ -376,6 +385,10 @@ bool resolve_rpa_with_irk(const uint8_t rpa[6], const uint8_t irk[16]) {
 void refresh_ble_bond_cache() {
     int dev_num = esp_ble_get_bond_device_num();
     if (dev_num > kMaxBleBondedDevices) {
+        /* 실제로 여기 진입하면 CONFIG_BT_SMP_MAX_BONDS를 누가 우회했거나 상수 간
+         * 일관성이 깨진 것 — 사일런트 data loss를 막기 위해 즉시 에러 로그. */
+        ESP_LOGE(kTag, "BLE bonded %d exceeds kMaxBleBondedDevices %d — clamped (possible data loss)",
+                 dev_num, kMaxBleBondedDevices);
         dev_num = kMaxBleBondedDevices;
     }
 
@@ -430,6 +443,8 @@ void refresh_ble_bond_cache() {
 void refresh_classic_bond_cache() {
     int dev_num = esp_bt_gap_get_bond_device_num();
     if (dev_num > kMaxClassicBondedDevices) {
+        ESP_LOGE(kTag, "Classic bonded %d exceeds kMaxClassicBondedDevices %d — clamped (possible data loss)",
+                 dev_num, kMaxClassicBondedDevices);
         dev_num = kMaxClassicBondedDevices;
     }
 

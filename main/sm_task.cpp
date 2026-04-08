@@ -13,8 +13,18 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <sdkconfig.h>
 
 static const char *TAG = "sm";
+
+/**
+ * 타깃 빌드에서 kMaxTrackedDevices와 ESP-IDF의 본드 상한이 일치하는지 강제합니다.
+ * host_test 빌드는 sdkconfig.h를 include 안 하므로 이 assert는 타깃에서만 돕니다.
+ * 두 값이 어긋나면 "본딩은 성공했는데 SM이 추적 못 하는" silent 버그가 발생.
+ */
+static_assert(kMaxTrackedDevices == CONFIG_BT_SMP_MAX_BONDS,
+              "kMaxTrackedDevices must match CONFIG_BT_SMP_MAX_BONDS — "
+              "update statemachine.h after changing sdkconfig");
 
 /**
  * 큐 메시지 타입.

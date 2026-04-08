@@ -10,14 +10,21 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <nvs.h>
+#include <sdkconfig.h>
 
 static const char *TAG = "dev_cfg_svc";
 
 /** NVS namespace. 기기별 설정 전용. */
 static constexpr const char *kNvsNamespace = "dev";
 
-/** 캐시 최대 항목 수. */
-static constexpr int kMaxEntries = 15;
+/**
+ * 캐시 최대 항목 수.
+ *
+ * ESP-IDF의 `CONFIG_BT_SMP_MAX_BONDS`가 BLE+Classic **합산** 본드 상한을
+ * 결정하므로 여기서도 같은 값을 써야 "본딩은 성공했는데 config 슬롯이 없어서
+ * 저장 실패"하는 silent data loss를 방지합니다. 단일 진실원: sdkconfig.
+ */
+static constexpr int kMaxEntries = CONFIG_BT_SMP_MAX_BONDS;
 
 /**
  * 인메모리 캐시 항목.
