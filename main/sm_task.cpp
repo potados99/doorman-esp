@@ -90,6 +90,14 @@ static void sm_task(void *) {
         while (xQueueReceive(s_queue, &msg, drained == 0 ? pdMS_TO_TICKS(kTickIntervalMs) : 0) == pdTRUE) {
             switch (msg.type) {
             case SmMsgType::Feed:
+                /**
+                 * 감지 파라미터(rssi_threshold, timeout 등)를 feed 시점에 주입한다.
+                 * device_config_get()은 캐시 읽기(즉시)이고, 캐시에 없으면 기본값 반환.
+                 *
+                 * 이 값들은 feed가 올 때만 판정에 쓰이므로 이 시점에 넣는 것이 정확하다.
+                 * alias 등 표시용 필드는 SM이 사용하지 않으며, 웹 UI가 REST로 직접 읽는다.
+                 * config 변경(모달 저장 등)은 캐시에 즉시 반영되므로 다음 feed부터 적용.
+                 */
                 sm.update_device_config(msg.feed.mac, device_config_get(msg.feed.mac));
                 sm.feed(msg.feed.mac, msg.feed.seen, msg.feed.now_ms, msg.feed.rssi);
                 break;
