@@ -38,16 +38,18 @@ bool device_config_exists(const uint8_t (&mac)[6]);
 /**
  * 지정한 MAC 주소의 DeviceConfig를 업데이트합니다.
  *
- * invalid 값은 거부합니다. 캐시 업데이트와 NVS 저장이 mutex 안에서
- * 동기적으로 수행되어, 반환 시점에 두 곳이 일관됨이 보장됩니다.
+ * invalid 값은 거부합니다. mutex는 캐시 업데이트 동안에만 짧게 잡고
+ * NVS 저장은 mutex 밖에서 동기적으로 수행됩니다 — sm_task의 feed 처리
+ * 같은 reader가 NVS write 동안 블록되지 않도록 합니다. 반환 시점에는
+ * 캐시도 NVS도 새 값이 반영된 상태입니다.
  */
 void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg);
 
 /**
  * 지정한 MAC 주소의 DeviceConfig를 캐시 및 NVS에서 삭제합니다.
  *
- * 존재하지 않는 키 삭제는 조용히 무시합니다.
- * 캐시 삭제와 NVS 삭제가 mutex 안에서 동기적으로 수행됩니다.
+ * 존재하지 않는 키 삭제는 조용히 무시합니다. set과 동일하게 mutex는
+ * 캐시 변경 동안에만 잡고 NVS 삭제는 mutex 밖에서 수행됩니다.
  */
 void device_config_delete(const uint8_t (&mac)[6]);
 

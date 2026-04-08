@@ -306,43 +306,51 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg) {
     }
 
     /**
-     * mutex를 NVS write 동안에도 들고 있어 캐시와 NVS의 atomic 일관성을
-     * 보장합니다. 호출 빈도가 낮고(사람 액션 기반) NVS write latency(~10ms)는
-     * HTTP 응답 RTT 안에 자연스럽게 흡수되므로 hold time이 문제 안 됨.
+     * mutex는 **캐시 업데이트 동안에만** 짧게 잡고 NVS write는 mutex 밖에서
+     * 수행합니다. NVS worst case(sector erase + wear leveling)가 100~300ms이라
+     * mutex를 그 동안 들고 있으면 sm_task의 매 feed `device_config_get()` 호출이
+     * 막혀 BLE burst 시 SM 큐가 가득 차서 drop될 수 있습니다.
+     *
+     * 이 구조는 이전 async 모델(cfg_nvs_task)과 동일한 격리 효과를 가집니다 —
+     * 차이는 NVS write가 별도 task가 아닌 호출자(httpd) 동기 호출로 이뤄지는
+     * 것뿐. 동시 writer race는 ESP-IDF httpd가 single-thread라 발생 안 함.
      */
+    bool valid_slot = false;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-
     DeviceConfigEntry *entry = find_entry(mac);
     if (!entry) {
         entry = find_free_slot();
-        if (!entry) {
-            xSemaphoreGive(s_mutex);
-            char key[13];
-            mac_to_key(mac, key);
-            ESP_LOGE(TAG, "Cache full — cannot add device config for %s", key);
-            return;
+        if (entry) {
+            memcpy(entry->mac, mac, 6);
+            entry->used = true;
         }
-        memcpy(entry->mac, mac, 6);
-        entry->used = true;
     }
-    entry->config = cfg;
+    if (entry) {
+        entry->config = cfg;
+        valid_slot = true;
+    }
+    xSemaphoreGive(s_mutex);
+
+    if (!valid_slot) {
+        char key[13];
+        mac_to_key(mac, key);
+        ESP_LOGE(TAG, "Cache full — cannot add device config for %s", key);
+        return;
+    }
 
     save_entry_to_nvs(mac, cfg);
-
-    xSemaphoreGive(s_mutex);
 }
 
 void device_config_delete(const uint8_t (&mac)[6]) {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-
     DeviceConfigEntry *entry = find_entry(mac);
     if (entry) {
         memset(entry, 0, sizeof(DeviceConfigEntry));
     }
-
-    delete_entry_from_nvs(mac);
-
     xSemaphoreGive(s_mutex);
+
+    /* mutex 밖에서 NVS I/O 수행 (set과 동일 이유 — sm_task feed 처리 격리). */
+    delete_entry_from_nvs(mac);
 }
 
 int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max) {
