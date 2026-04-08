@@ -256,14 +256,16 @@ static void load_all_from_nvs() {
                     }
 
                     if (erase_needed && erase_count < kMaxEntries) {
-                        snprintf(erase_keys[erase_count++], sizeof(erase_keys[0]), "%s", info.key);
+                        strncpy(erase_keys[erase_count], info.key, sizeof(erase_keys[0]) - 1);
+                        erase_keys[erase_count++][sizeof(erase_keys[0]) - 1] = '\0';
                     }
                 }
             } else {
                 ESP_LOGW(TAG, "Unexpected blob size for %s (%d bytes) — erasing",
                          info.key, (int)blob_size);
                 if (erase_count < kMaxEntries) {
-                    snprintf(erase_keys[erase_count++], sizeof(erase_keys[0]), "%s", info.key);
+                    strncpy(erase_keys[erase_count], info.key, sizeof(erase_keys[0]) - 1);
+                        erase_keys[erase_count++][sizeof(erase_keys[0]) - 1] = '\0';
                 }
             }
         }

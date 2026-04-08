@@ -623,9 +623,12 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
     DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
 
     char val[64] = {};
-    if (httpd_query_key_value(body, "alias", val, sizeof(cfg.alias)) == ESP_OK) {
-        url_decode(val);
-        snprintf(cfg.alias, sizeof(cfg.alias), "%s", val);
+    {
+        char alias_val[sizeof(cfg.alias)] = {};
+        if (httpd_query_key_value(body, "alias", alias_val, sizeof(alias_val)) == ESP_OK) {
+            url_decode(alias_val);
+            snprintf(cfg.alias, sizeof(cfg.alias), "%s", alias_val);
+        }
     }
     if (httpd_query_key_value(body, "rssi", val, sizeof(val)) == ESP_OK) {
         cfg.rssi_threshold = (int8_t)atoi(val);

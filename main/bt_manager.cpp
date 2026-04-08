@@ -875,8 +875,10 @@ void classic_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                 const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*param->auth_cmpl.bda);
                 DeviceConfig cfg = device_config_get(mac);
                 if (cfg.alias[0] == '\0') {
-                    snprintf(cfg.alias, sizeof(cfg.alias), "%s",
-                             reinterpret_cast<const char *>(param->auth_cmpl.device_name));
+                    strncpy(cfg.alias,
+                            reinterpret_cast<const char *>(param->auth_cmpl.device_name),
+                            sizeof(cfg.alias) - 1);
+                    cfg.alias[sizeof(cfg.alias) - 1] = '\0';
                 }
                 device_config_set(mac, cfg);
             }
