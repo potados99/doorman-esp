@@ -25,6 +25,12 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+/**
+ * 이 파일의 전역 심볼은 익명 네임스페이스에 넣어 internal linkage를
+ * 강제합니다. 파일 밖(링크 시)으로 이름이 새지 않으므로 별도로 `static`을
+ * 붙일 필요가 없습니다. (익명 ns + static 중복 선언은 clang-tidy의
+ * "static in anonymous namespace; static is redundant"에 걸림)
+ */
 namespace {
 
 // ── 상수 ──
@@ -66,7 +72,7 @@ struct BtCmd {
  * BT 명령 큐: HTTP 핸들러 → BT 태스크.
  * 깊이 4면 충분합니다 — 페어링 + 삭제 요청이 겹칠 수 있으므로 여유를 확보합니다.
  */
-static QueueHandle_t s_bt_cmd_queue = nullptr;
+QueueHandle_t s_bt_cmd_queue = nullptr;
 
 // ── BLE Advertising 데이터 (컴파일 타임 구성) ──
 
@@ -576,11 +582,11 @@ void close_pairing_window() {
  * RPA가 바뀌면 자연스럽게 캐시 미스 → 새로 resolve를 시도합니다.
  * Bluedroid 콜백은 단일 태스크이므로 lock이 불필요합니다.
  */
-static constexpr int kNegCacheSize = 32;
-static esp_bd_addr_t s_neg_cache[kNegCacheSize] = {};
-static int s_neg_cache_idx = 0;
+constexpr int kNegCacheSize = 32;
+esp_bd_addr_t s_neg_cache[kNegCacheSize] = {};
+int s_neg_cache_idx = 0;
 
-static bool neg_cache_contains(const uint8_t *bda) {
+bool neg_cache_contains(const uint8_t *bda) {
     for (int i = 0; i < kNegCacheSize; ++i) {
         if (std::memcmp(bda, s_neg_cache[i], ESP_BD_ADDR_LEN) == 0) {
             return true;
@@ -589,7 +595,7 @@ static bool neg_cache_contains(const uint8_t *bda) {
     return false;
 }
 
-static void neg_cache_add(const uint8_t *bda) {
+void neg_cache_add(const uint8_t *bda) {
     std::memcpy(s_neg_cache[s_neg_cache_idx], bda, ESP_BD_ADDR_LEN);
     s_neg_cache_idx = (s_neg_cache_idx + 1) % kNegCacheSize;
 }
@@ -636,8 +642,8 @@ static void neg_cache_add(const uint8_t *bda) {
  *                        `peers_snap[i].identity_addr`로 identity 획득.
  *   -1                  : 매칭 실패 (본딩되지 않은 주소).
  */
-static int match_peer_by_addr_slow(const uint8_t *addr,
-                                    const BlePeer *peers_snap, int peer_count) {
+int match_peer_by_addr_slow(const uint8_t *addr,
+                             const BlePeer *peers_snap, int peer_count) {
     for (int i = 0; i < peer_count; ++i) {
         if (!peers_snap[i].valid) {
             continue;
@@ -667,8 +673,8 @@ static int match_peer_by_addr_slow(const uint8_t *addr,
  * 호출 전에 반드시 `refresh_ble_bond_cache()`로 peer 캐시가 최신 상태여야
  * 합니다. 스냅샷을 뜬 뒤 match_peer_by_addr_slow를 호출하는 thin wrapper입니다.
  */
-static bool find_identity_for_connected_addr(const uint8_t *conn_addr,
-                                               uint8_t out_identity[ESP_BD_ADDR_LEN]) {
+bool find_identity_for_connected_addr(const uint8_t *conn_addr,
+                                       uint8_t out_identity[ESP_BD_ADDR_LEN]) {
     BlePeer peers_snap[kMaxBleBondedDevices] = {};
     int peer_count = 0;
 
