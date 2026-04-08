@@ -16,6 +16,7 @@
 #include <esp_gap_ble_api.h>
 #include <esp_gap_bt_api.h>
 #include <esp_log.h>
+#include <esp_core_dump.h>
 #include <esp_ota_ops.h>
 #include <esp_random.h>
 #include <esp_system.h>
@@ -476,6 +477,44 @@ static esp_err_t stats_handler(httpd_req_t *req) {
     return httpd_resp_sendstr(req, buf);
 }
 
+/**
+ * Core dump 요약 조회.
+ * flash에 저장된 core dump가 있으면 JSON으로 반환합니다.
+ */
+static esp_err_t coredump_handler(httpd_req_t *req) {
+    if (!check_auth(req)) return ESP_OK;
+
+    esp_core_dump_summary_t summary = {};
+    esp_err_t err = esp_core_dump_get_summary(&summary);
+    if (err != ESP_OK) {
+        return send_text(req, "200 OK", "{\"available\":false}");
+    }
+
+    char buf[512];
+    char backtrace[256] = {};
+    int pos = 0;
+    for (int i = 0; i < summary.exc_bt_info.depth && i < 16; ++i) {
+        pos += snprintf(backtrace + pos, sizeof(backtrace) - pos,
+                        "%s0x%08lx", i > 0 ? "," : "",
+                        (unsigned long)summary.exc_bt_info.bt[i]);
+        if (pos >= (int)sizeof(backtrace) - 12) break;
+    }
+
+    snprintf(buf, sizeof(buf),
+             "{\"available\":true,"
+             "\"task\":\"%s\","
+             "\"exc_cause\":%lu,"
+             "\"pc\":\"0x%08lx\","
+             "\"backtrace\":[%s]}",
+             summary.exc_task,
+             (unsigned long)summary.ex_info.exc_cause,
+             (unsigned long)summary.exc_pc,
+             backtrace);
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 /** WS 인증 토큰 발급. Basic Auth 뒤에 있으므로 인증된 사용자만 획득 가능. */
 static esp_err_t ws_token_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
@@ -822,9 +861,10 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/devices",               HTTP_GET,  devices_handler,             false},
             {"/api/devices/config",        HTTP_POST, devices_config_handler,      false},
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
+            {"/api/coredump",              HTTP_GET,  coredump_handler,            false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 17);
+        ok = register_routes(server, sta_routes, 18);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

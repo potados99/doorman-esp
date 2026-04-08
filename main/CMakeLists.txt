@@ -24,6 +24,7 @@ idf_component_register(
         mbedtls
         esp_wifi
         nvs_flash
+        espcoredump
         statemachine
     EMBED_TXTFILES
         "../frontend/index.html"

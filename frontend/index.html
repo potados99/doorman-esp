@@ -1094,13 +1094,14 @@ function processWsData(data) {
 
         var mon = l.match(/monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/);
         if (mon) {
-            var ramF = (parseInt(mon[1]) / 1024).toFixed(0);
-            var ramT = (parseInt(mon[2]) / 1024).toFixed(0);
-            var ramPct = parseInt(mon[2]) > 0 ? Math.round(parseInt(mon[1]) / parseInt(mon[2]) * 100) : 0;
-            var psF = (parseInt(mon[3]) / 1024).toFixed(0);
-            var psT = (parseInt(mon[4]) / 1024).toFixed(0);
+            var ramUsed = parseInt(mon[2]) - parseInt(mon[1]);
+            var ramT = parseInt(mon[2]);
+            var ramPct = ramT > 0 ? Math.round(ramUsed / ramT * 100) : 0;
+            var psUsed = parseInt(mon[4]) - parseInt(mon[3]);
+            var psT = parseInt(mon[4]);
+            var psPct = psT > 0 ? Math.round(psUsed / psT * 100) : 0;
             document.getElementById('sysStats').textContent =
-                'RAM ' + ramF + 'K/' + ramT + 'K (' + ramPct + '%) · PSRAM ' + psF + 'K/' + psT + 'K · tasks ' + mon[5];
+                'RAM ' + ramPct + '% · PSRAM ' + psPct + '% · tasks ' + mon[5];
             continue;
         }
     }
