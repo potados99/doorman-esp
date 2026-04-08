@@ -623,7 +623,7 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
     DeviceConfig cfg = device_config_get(reinterpret_cast<const uint8_t(&)[6]>(*mac));
 
     char val[64] = {};
-    if (httpd_query_key_value(body, "alias", val, sizeof(val)) == ESP_OK) {
+    if (httpd_query_key_value(body, "alias", val, sizeof(cfg.alias)) == ESP_OK) {
         url_decode(val);
         snprintf(cfg.alias, sizeof(cfg.alias), "%s", val);
     }
