@@ -41,14 +41,15 @@ void control_task_start() {
     s_queue = xQueueCreate(kQueueDepth, sizeof(ControlCommand));
     configASSERT(s_queue);
 
-    BaseType_t ok = xTaskCreatePinnedToCore(
+    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
         control_task,
         "control",
         2048,
         nullptr,
         5,
         nullptr,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        MALLOC_CAP_SPIRAM);
     configASSERT(ok == pdPASS);
 
     ESP_LOGI(TAG, "Control task started (queue depth=%d)", kQueueDepth);

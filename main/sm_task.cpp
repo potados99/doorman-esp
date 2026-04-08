@@ -147,14 +147,15 @@ void sm_task_start() {
     s_snapshot_mutex = xSemaphoreCreateMutex();
     configASSERT(s_snapshot_mutex);
 
-    BaseType_t ok = xTaskCreatePinnedToCore(
+    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(
         sm_task,
         "sm_task",
         4096,
         nullptr,
         5,
         nullptr,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        MALLOC_CAP_SPIRAM);
     configASSERT(ok == pdPASS);
 
     ESP_LOGI(TAG, "SM task started (tick interval=%dms)", kTickIntervalMs);
