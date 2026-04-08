@@ -6,8 +6,13 @@
  * 기기별 설정 서비스: NVS에 MAC 주소를 키로 DeviceConfig blob을 저장합니다.
  *
  * NVS namespace "dev", key: MAC 12자리 대문자 hex (예: "842F57A0C4EA").
- * 최대 15개 기기 설정을 인메모리 캐시로 관리하며, FreeRTOS mutex로 보호합니다.
- * NVS I/O는 백그라운드 태스크에서 비동기로 처리되어 호출자를 블로킹하지 않습니다.
+ * 본드 슬롯 상한(CONFIG_BT_SMP_MAX_BONDS)만큼의 인메모리 캐시를 mutex로
+ * 보호하며, set/delete는 **동기** NVS write입니다 (mutex 보유 중 NVS I/O 수행).
+ *
+ * 호출 빈도가 사람 액션 기반(모달 저장 등)이라 매우 낮고, NVS write
+ * latency(~10ms)는 HTTP 응답 RTT 안에 자연스럽게 흡수됩니다. 이전엔 BT
+ * 콜백 컨텍스트 격리를 위해 백그라운드 큐 + cfg_nvs_task 구조였지만, BT
+ * manager가 더 이상 device_config NVS를 쓰지 않게 되어 큐를 제거했습니다.
  */
 
 /**
@@ -33,8 +38,8 @@ bool device_config_exists(const uint8_t (&mac)[6]);
 /**
  * 지정한 MAC 주소의 DeviceConfig를 업데이트합니다.
  *
- * invalid 값은 거부합니다. 캐시는 mutex 안에서 즉시 업데이트되며,
- * NVS 저장은 비동기로 백그라운드에서 수행됩니다.
+ * invalid 값은 거부합니다. 캐시 업데이트와 NVS 저장이 mutex 안에서
+ * 동기적으로 수행되어, 반환 시점에 두 곳이 일관됨이 보장됩니다.
  */
 void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg);
 
@@ -42,7 +47,7 @@ void device_config_set(const uint8_t (&mac)[6], const DeviceConfig &cfg);
  * 지정한 MAC 주소의 DeviceConfig를 캐시 및 NVS에서 삭제합니다.
  *
  * 존재하지 않는 키 삭제는 조용히 무시합니다.
- * 캐시는 즉시 삭제되며, NVS 삭제는 비동기로 백그라운드에서 수행됩니다.
+ * 캐시 삭제와 NVS 삭제가 mutex 안에서 동기적으로 수행됩니다.
  */
 void device_config_delete(const uint8_t (&mac)[6]);
 
