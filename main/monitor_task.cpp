@@ -10,6 +10,7 @@ static const char *TAG = "monitor";
 static SystemStats s_stats = {};
 
 static void monitor_task(void *) {
+    s_stats.total_heap = esp_get_free_heap_size();  // 부팅 직후 = 전체 힙
     while (true) {
         s_stats.free_heap = esp_get_free_heap_size();
         s_stats.min_free_heap = esp_get_minimum_free_heap_size();

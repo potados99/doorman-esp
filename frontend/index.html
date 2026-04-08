@@ -1265,10 +1265,11 @@ setInterval(function() {
         if (xhr.status === 200) {
             try {
                 var s = JSON.parse(xhr.responseText);
-                var heapMB = (s.free_heap / 1024).toFixed(0);
-                var minMB = (s.min_free_heap / 1024).toFixed(0);
+                var freeK = (s.free_heap / 1024).toFixed(0);
+                var totalK = (s.total_heap / 1024).toFixed(0);
+                var pct = s.total_heap > 0 ? Math.round(s.free_heap / s.total_heap * 100) : 0;
                 document.getElementById('sysStats').textContent =
-                    'heap ' + heapMB + 'K / min ' + minMB + 'K · tasks ' + s.task_count;
+                    'heap ' + freeK + 'K/' + totalK + 'K (' + pct + '%) · tasks ' + s.task_count;
             } catch(e) {}
         }
     };

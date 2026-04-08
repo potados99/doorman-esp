@@ -91,7 +91,7 @@ MockXHR.prototype.send = function(body) {
         } else if (url === '/api/info') {
             self.responseText = JSON.stringify({ version: "v1.2.0-preview", date: "2026-04-08", safe_mode: false });
         } else if (url === '/api/stats') {
-            self.responseText = JSON.stringify({ free_heap: 142336, min_free_heap: 98304, task_count: 12 });
+            self.responseText = JSON.stringify({ total_heap: 245760, free_heap: 142336, min_free_heap: 98304, task_count: 12 });
         } else if (url === '/api/auto-unlock/status') {
             self.responseText = mockAutoUnlock ? 'enabled' : 'disabled';
         } else if (url === '/api/auto-unlock/toggle') {

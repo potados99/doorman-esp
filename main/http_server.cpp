@@ -465,7 +465,8 @@ static esp_err_t stats_handler(httpd_req_t *req) {
     SystemStats stats = monitor_get_stats();
     char buf[128];
     snprintf(buf, sizeof(buf),
-             "{\"free_heap\":%lu,\"min_free_heap\":%lu,\"task_count\":%d}",
+             "{\"total_heap\":%lu,\"free_heap\":%lu,\"min_free_heap\":%lu,\"task_count\":%d}",
+             (unsigned long)stats.total_heap,
              (unsigned long)stats.free_heap,
              (unsigned long)stats.min_free_heap,
              stats.task_count);
