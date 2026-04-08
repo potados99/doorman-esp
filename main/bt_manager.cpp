@@ -1166,22 +1166,31 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
 
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
         /**
-         * identity 주소를 확보하기 위해 먼저 bond cache를 갱신합니다.
-         * 이 순서가 중요합니다 — auth_cmpl.bd_addr는 연결 순간의 주소(RPA일 수
-         * 있음)인데, bond cache에서 IRK + static_addr를 읽고 resolve하면 실제
-         * identity를 얻을 수 있습니다. 이걸 로그·config 저장·웹 알림에 사용하면:
-         *   (1) 페어링 모달이 RPA 대신 identity MAC을 표시 (UX 일치)
-         *   (2) NVS에 RPA 키로 고아 config가 저장되는 걸 방지
-         *   (3) 이후 스캔 feed가 쓰는 identity와 키가 일치 → config join 성공
+         * ESP_GAP_BLE_AUTH_CMPL_EVT는 **최초 페어링과 재연결 둘 다에서 발사**됩니다.
+         *   - 최초 페어링: SMP 키 교환 후 → auth_mode에 ESP_LE_AUTH_BOND 비트 세팅
+         *   - 재연결: 저장된 LTK로 link encryption만 재수립 → 비트 미세팅
+         * 재연결 시에도 같은 로그를 찍으면 프론트엔드 페어링 모달이 "연결됨!" 오탐을
+         * 띄우고, 이미 있는 config를 다시 set 시도하는 등 불필요한 부수효과가 생깁니다.
+         * 따라서 ESP_LE_AUTH_BOND 비트로 **첫 본딩에만** 반응하도록 게이트합니다.
+         *
+         * identity resolution을 위해 bond cache를 먼저 갱신하는 것은 양쪽 경로 모두
+         * 필요할 수 있으므로 게이트 이전에 무조건 호출합니다. ESP-IDF 내부에서
+         * auth_cmpl 콜백은 NVS flush 이후에 dispatch되므로 이 시점에 새 peer의
+         * identity key(static_addr + IRK)를 읽을 수 있음이 보장됩니다
+         * (btc_dm.c:918, btc_storage_add_ble_bonding_key 동기 커밋).
          */
         refresh_ble_bond_cache();
 
-        if (param->ble_security.auth_cmpl.success) {
+        const bool success = param->ble_security.auth_cmpl.success;
+        const bool is_new_bond =
+            (param->ble_security.auth_cmpl.auth_mode & ESP_LE_AUTH_BOND) != 0;
+
+        if (success && is_new_bond) {
             uint8_t identity[ESP_BD_ADDR_LEN] = {};
             bool have_identity = find_identity_for_connected_addr(
                 param->ble_security.auth_cmpl.bd_addr, identity);
 
-            /* identity resolve 실패 시 원래 conn addr로 fallback (기존 동작) */
+            /* identity resolve 실패 시 원래 conn addr로 fallback */
             const uint8_t *use_addr = have_identity
                 ? identity
                 : param->ble_security.auth_cmpl.bd_addr;
@@ -1193,13 +1202,17 @@ void ble_gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *para
                      param->ble_security.auth_cmpl.addr_type,
                      have_identity ? "" : " (identity unresolved — using conn addr)");
 
-            /* use_addr는 6바이트를 가리키는 포인터(identity 또는 bd_addr 둘 다
-             * ESP_BD_ADDR_LEN==6 보장). 배열 참조로 다시 묶기 위해 reinterpret_cast가 필요합니다. */
+            /* use_addr는 6바이트 포인터(identity 또는 bd_addr, 둘 다 ESP_BD_ADDR_LEN==6
+             * 보장). 배열 참조로 묶기 위해 reinterpret_cast 필요. */
             const uint8_t (&mac)[6] = reinterpret_cast<const uint8_t(&)[6]>(*use_addr);
             if (!device_config_exists(mac)) {
                 DeviceConfig cfg = {};
                 device_config_set(mac, cfg);
             }
+        } else if (success) {
+            /* 재연결 — 조용히 지나감. 프론트엔드 모달에 "연결됨!" 오탐 방지.
+             * 디버그 레벨로만 흔적 남김. */
+            ESP_LOGD(kTag, "BLE re-encryption complete (existing bond, not a new pairing)");
         } else {
             char addr_str[18] = {};
             bda_to_str(param->ble_security.auth_cmpl.bd_addr, addr_str, sizeof(addr_str));
