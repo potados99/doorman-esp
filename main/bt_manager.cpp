@@ -44,7 +44,6 @@ constexpr char kClassicDeviceName[] = "Doorman SPP";
 constexpr char kClassicServerName[] = "DOORMAN_SPP";
 constexpr uint32_t kBleFixedPasskey = 123456;
 
-constexpr TickType_t kPairingWindow = pdMS_TO_TICKS(30000);
 constexpr TickType_t kPairingLogInterval = pdMS_TO_TICKS(5000);
 constexpr TickType_t kLoopDelay = pdMS_TO_TICKS(100);
 constexpr TickType_t kClassicProbeRetryDelay = pdMS_TO_TICKS(200);
@@ -174,7 +173,6 @@ struct ClassicPeer {
 
 portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t s_presence_task_handle = nullptr;
-TickType_t s_pairing_start_tick = 0;
 
 std::atomic<bool> s_pairing_mode{false};
 std::atomic<bool> s_ble_local_privacy_ready{false};
@@ -523,7 +521,6 @@ void open_pairing_window() {
     }
 
     s_pairing_mode.store(true);
-    s_pairing_start_tick = xTaskGetTickCount();
 
     /**
      * scan mode 전환이 진행 중인 read_remote_name page를 취소할 수 있습니다.
@@ -544,7 +541,7 @@ void open_pairing_window() {
     /* Classic: connectable + discoverable */
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
-    ESP_LOGI(kTag, "Pairing window opened (30s). BLE='%s', Classic='%s'",
+    ESP_LOGI(kTag, "Pairing window opened — awaiting manual stop. BLE='%s', Classic='%s'",
              kBleDeviceName, kClassicDeviceName);
 }
 
