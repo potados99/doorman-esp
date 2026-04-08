@@ -17,10 +17,16 @@ static void monitor_task(void *) {
         s_stats.spiram_total   = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
         s_stats.task_count     = uxTaskGetNumberOfTasks();
 
+        // 로그는 used/total 형식 — 프론트엔드가 보기 직관적이고 used 자체가 의미 단위.
+        const unsigned long ram_used   = static_cast<unsigned long>(
+            s_stats.internal_total - s_stats.internal_free);
+        const unsigned long psram_used = static_cast<unsigned long>(
+            s_stats.spiram_total - s_stats.spiram_free);
+
         ESP_LOGI(TAG, "ram=%lu/%lu psram=%lu/%lu tasks=%d",
-                 (unsigned long)s_stats.internal_free,
+                 ram_used,
                  (unsigned long)s_stats.internal_total,
-                 (unsigned long)s_stats.spiram_free,
+                 psram_used,
                  (unsigned long)s_stats.spiram_total,
                  s_stats.task_count);
 

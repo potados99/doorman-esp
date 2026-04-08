@@ -1159,10 +1159,11 @@ function processWsData(data) {
 
         var mon = l.match(/monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/);
         if (mon) {
-            var ramUsed = parseInt(mon[2]) - parseInt(mon[1]);
+            // 펌웨어 로그가 used/total 형식. (monitor_task.cpp 참조)
+            var ramUsed = parseInt(mon[1]);
             var ramT = parseInt(mon[2]);
             var ramPct = ramT > 0 ? Math.round(ramUsed / ramT * 100) : 0;
-            var psUsed = parseInt(mon[4]) - parseInt(mon[3]);
+            var psUsed = parseInt(mon[3]);
             var psT = parseInt(mon[4]);
             var psPct = psT > 0 ? Math.round(psUsed / psT * 100) : 0;
             document.getElementById('sysStats').textContent =
