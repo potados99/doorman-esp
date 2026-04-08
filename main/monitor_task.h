@@ -15,9 +15,10 @@ void monitor_task_start();
  * monitor task가 주기적으로 갱신하는 값을 읽습니다.
  */
 struct SystemStats {
-    uint32_t total_heap;
-    uint32_t free_heap;
-    uint32_t min_free_heap;
+    uint32_t internal_free;
+    uint32_t internal_total;
+    uint32_t spiram_free;
+    uint32_t spiram_total;
     int task_count;
 };
 

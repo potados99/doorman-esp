@@ -791,18 +791,34 @@ function syncPairingState(wantOn, seq, cb) {
     statusXhr.send(null);
 }
 
-// 매초 카드 표시 갱신 ("N초 전" 타이머 업데이트)
+// 매초 카드 + 모달 표시 갱신 ("N초 전" 타이머 업데이트)
 setInterval(function() {
     var macs = Object.keys(deviceData);
     for (var i = 0; i < macs.length; i++) {
         updateCardDisplay(macs[i]);
     }
+    if (currentDetailMac) updateModalStatusText(currentDetailMac);
 }, 1000);
 
 /* ──────────────────────────────────────────
    기기 상세 모달
    ────────────────────────────────────────── */
 var currentDetailMac = null;
+
+function updateModalStatusText(mac) {
+    var dev = deviceData[mac];
+    if (!dev) return;
+    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
+    var stateLabel = state === 'present' ? '재실' : (state === 'detecting' ? '감지 중' : '미감지');
+    var rssiVisible = (dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0);
+    var rssiStr = rssiVisible ? ' · RSSI ' + dev.rssi : '';
+    var agoStr = '';
+    if (lastBtTime[mac]) {
+        var sec = Math.floor((Date.now() - lastBtTime[mac]) / 1000);
+        if (sec >= 1) agoStr = ' · ' + sec + '초 전';
+    }
+    document.getElementById('modalStatusText').textContent = stateLabel + rssiStr + agoStr;
+}
 
 function openDetailModal(mac) {
     var dev = deviceData[mac];
@@ -811,16 +827,7 @@ function openDetailModal(mac) {
 
     document.getElementById('modalTitle').textContent = dev.alias || mac;
 
-    // 상태 텍스트
-    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
-    var stateLabel = state === 'present' ? '재실' : (state === 'detecting' ? '감지 중' : '미감지');
-    var rssiVisible = (dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0);
-    var rssiPart = rssiVisible ? ' · RSSI ' + dev.rssi : '';
-    var timePart = '';
-    if (lastBtTime[mac]) {
-        timePart = ' · ' + relativeTime(Date.now() - lastBtTime[mac]);
-    }
-    document.getElementById('modalStatusText').textContent = stateLabel + rssiPart + timePart;
+    updateModalStatusText(mac);
 
     // 폼 채우기
     document.getElementById('modalAlias').value = dev.alias || '';
@@ -1085,13 +1092,15 @@ function processWsData(data) {
         var sm = l.match(/sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/);
         if (sm) { updateCardState(sm[1], sm[2], l); continue; }
 
-        var mon = l.match(/monitor: heap=(\d+)\/(\d+) tasks=(\d+)/);
+        var mon = l.match(/monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/);
         if (mon) {
-            var freeK = (parseInt(mon[1]) / 1024).toFixed(0);
-            var totalK = (parseInt(mon[2]) / 1024).toFixed(0);
-            var pct = parseInt(mon[2]) > 0 ? Math.round(parseInt(mon[1]) / parseInt(mon[2]) * 100) : 0;
+            var ramF = (parseInt(mon[1]) / 1024).toFixed(0);
+            var ramT = (parseInt(mon[2]) / 1024).toFixed(0);
+            var ramPct = parseInt(mon[2]) > 0 ? Math.round(parseInt(mon[1]) / parseInt(mon[2]) * 100) : 0;
+            var psF = (parseInt(mon[3]) / 1024).toFixed(0);
+            var psT = (parseInt(mon[4]) / 1024).toFixed(0);
             document.getElementById('sysStats').textContent =
-                'heap ' + freeK + 'K/' + totalK + 'K (' + pct + '%) · tasks ' + mon[3];
+                'RAM ' + ramF + 'K/' + ramT + 'K (' + ramPct + '%) · PSRAM ' + psF + 'K/' + psT + 'K · tasks ' + mon[5];
             continue;
         }
     }

@@ -463,12 +463,14 @@ static esp_err_t stats_handler(httpd_req_t *req) {
     if (!check_auth(req)) return ESP_OK;
 
     SystemStats stats = monitor_get_stats();
-    char buf[128];
+    char buf[192];
     snprintf(buf, sizeof(buf),
-             "{\"total_heap\":%lu,\"free_heap\":%lu,\"min_free_heap\":%lu,\"task_count\":%d}",
-             (unsigned long)stats.total_heap,
-             (unsigned long)stats.free_heap,
-             (unsigned long)stats.min_free_heap,
+             "{\"internal_free\":%lu,\"internal_total\":%lu,"
+             "\"spiram_free\":%lu,\"spiram_total\":%lu,\"task_count\":%d}",
+             (unsigned long)stats.internal_free,
+             (unsigned long)stats.internal_total,
+             (unsigned long)stats.spiram_free,
+             (unsigned long)stats.spiram_total,
              stats.task_count);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, buf);
@@ -605,8 +607,8 @@ static esp_err_t devices_config_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Invalid request");
     }
 
-    // MAC 파싱
-    char mac_str[24] = {};
+    // MAC 파싱 (URL 인코딩 시 AA%3ABB%3A... = 최대 33바이트)
+    char mac_str[36] = {};
     if (httpd_query_key_value(body, "mac", mac_str, sizeof(mac_str)) != ESP_OK || mac_str[0] == '\0') {
         return send_text(req, "400 Bad Request", "mac parameter is required");
     }
