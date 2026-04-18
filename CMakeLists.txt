@@ -9,6 +9,9 @@ if(HOST_TEST)
     # 테스트 실행은 이렇게 하세요:
     #   cmake --build cmake-build-host-test && ./cmake-build-host-test/host_test_executable
     # 그냥 가서 빌드하는 명령입니다.
+
+    # 프로젝트 선언은 맨 위에 합니다.
+    # 아래 ESP 셋업은 맨 아래에 하는데 얘는 다른 점 주의..
     project(doorman_host_test CXX)
 
     # GoogleTest는 C++17 필요하다네요
@@ -64,7 +67,6 @@ else()
     #   cmake -S . -B cmake-build-esp-idf-debug
     # 그리고 빌드는 그냥 cmake --build 해도 되지만 이걸 추천합니다:
     #   idf.py -B ./cmake-build-esp-idf-debug build
-    project(doorman)
 
     # 이 펌웨어에는 현재 git 리비전 넘버가 버전으로 들어갑니다.
     # 따라서 git HEAD가 바뀌면(커밋 후) CMake가 자동으로 reconfigure하여 버전을 갱신하도록 합니다.
@@ -93,4 +95,8 @@ else()
 
     # 여기가 본격적인 시작!
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+    # 하하 얘는 이게 맨 밑에 있어야 하네요.
+    # 저 위에다가 두니까 configuring이 뭐 하지도 않고 끝남..
+    project(doorman)
 endif()
