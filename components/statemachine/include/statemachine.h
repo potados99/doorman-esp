@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_STATEMACHINE_H
+#define DOORMAN_ESP_STATEMACHINE_H
 
 #include "config.h"
 
@@ -128,3 +129,5 @@ private:
     /** MAC을 "AA:BB:CC:DD:EE:FF" 형태로 변환. 로그용. */
     static void mac_to_str(const uint8_t *mac, char *buf, size_t buf_size);
 };
+
+#endif //DOORMAN_ESP_STATEMACHINE_H

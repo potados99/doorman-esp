@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_CONTROL_TASK_H
+#define DOORMAN_ESP_CONTROL_TASK_H
 
 /**
  * Control Task: GPIO 펄스 명령을 FreeRTOS 큐로 직렬화합니다.
@@ -30,3 +31,5 @@ void control_task_start();
  * SM Task, HTTP 핸들러 등 여러 곳에서 호출 가능합니다.
  */
 void control_queue_send(ControlCommand cmd);
+
+#endif //DOORMAN_ESP_CONTROL_TASK_H

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_WIFI_H
+#define DOORMAN_ESP_WIFI_H
 
 enum class WifiMode {
     SoftAP,
@@ -10,3 +11,5 @@ enum class WifiMode {
 // If not found → starts SoftAP directly.
 // In STA mode, registers mDNS as "doorman.local".
 WifiMode wifi_start();
+
+#endif //DOORMAN_ESP_WIFI_H

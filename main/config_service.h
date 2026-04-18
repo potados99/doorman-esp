@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_CONFIG_SERVICE_H
+#define DOORMAN_ESP_CONFIG_SERVICE_H
 
 #include "config.h"
 
@@ -32,3 +33,5 @@ AppConfig app_config_get();
  * NVS 저장이 포함되므로 빈번하게 호출하면 flash wear에 주의합니다.
  */
 void app_config_set(const AppConfig &cfg);
+
+#endif //DOORMAN_ESP_CONFIG_SERVICE_H

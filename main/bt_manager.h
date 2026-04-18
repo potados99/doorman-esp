@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_BT_MANAGER_H
+#define DOORMAN_ESP_BT_MANAGER_H
 
 #include <esp_err.h>
 #include <stdbool.h>
@@ -33,3 +34,5 @@ void bt_remove_bond(const uint8_t (&mac)[6]);
  * 반환: 실제 기기 수입니다.
  */
 int bt_get_bonded_devices(uint8_t (*out_macs)[6], int max_count);
+
+#endif //DOORMAN_ESP_BT_MANAGER_H

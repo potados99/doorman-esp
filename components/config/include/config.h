@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_CONFIG_H
+#define DOORMAN_ESP_CONFIG_H
 
 #include <cstdint>
 
@@ -44,3 +45,5 @@ static_assert(sizeof(DeviceConfig) == 48, "DeviceConfig layout changed — updat
  * JSON 문자열을 깨는 문자("  \ )와 제어문자는 거부합니다. 빈 문자열은 허용합니다.
  */
 bool validate_device_config(const DeviceConfig &cfg);
+
+#endif //DOORMAN_ESP_CONFIG_H

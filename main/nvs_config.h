@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_NVS_CONFIG_H
+#define DOORMAN_ESP_NVS_CONFIG_H
 
 #include <cstddef>
 
@@ -19,3 +20,5 @@ void nvs_save_wifi(const char *ssid, const char *password);
 // Returns auth credentials from NVS (defaults to admin/admin if not set).
 AuthConfig nvs_load_auth();
 void nvs_save_auth(const char *username, const char *password);
+
+#endif //DOORMAN_ESP_NVS_CONFIG_H

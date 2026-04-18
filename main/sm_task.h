@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_SM_TASK_H
+#define DOORMAN_ESP_SM_TASK_H
 
 #include "statemachine.h"
 
@@ -42,3 +43,5 @@ void sm_remove_device_queue_send(const uint8_t (&mac)[6]);
  * mutex로 보호되므로 SM Task 외부에서 안전하게 호출 가능합니다.
  */
 int sm_get_snapshots(DeviceState *out, int max);
+
+#endif //DOORMAN_ESP_SM_TASK_H

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_HTTP_SERVER_H
+#define DOORMAN_ESP_HTTP_SERVER_H
 
 #include "wifi.h"
 
@@ -15,3 +16,5 @@
  * 별도 태스크가 WS 연결된 클라이언트에게 주기적으로 전송합니다.
  */
 httpd_handle_t start_webserver(WifiMode mode);
+
+#endif //DOORMAN_ESP_HTTP_SERVER_H

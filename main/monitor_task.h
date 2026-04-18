@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOORMAN_ESP_MONITOR_TASK_H
+#define DOORMAN_ESP_MONITOR_TASK_H
 
 #include <cstdint>
 
@@ -23,3 +24,5 @@ struct SystemStats {
 };
 
 SystemStats monitor_get_stats();
+
+#endif //DOORMAN_ESP_MONITOR_TASK_H
