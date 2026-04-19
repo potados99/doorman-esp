@@ -58,30 +58,32 @@
 
                 if (users.isPending) {
                     return html`
-                        <div>Loading...</div>`;
+                        <article aria-busy="true">Loading...</article>`;
                 } else if (users.isError) {
                     return html`
-                        <div>Error: ${users.error.message}</div>`;
+                        <article aria-live="assertive">Error: ${users.error.message}</article>`;
                 } else if (users.data?.length === 0) {
                     return html`
-                        <div>No data</div>`;
+                        <p>No data</p>`;
                 } else {
                     return html`
-                        <div>
-                            <ul>
+                        <section>
+                            <div>
                                 ${users.data?.map(item => html`
                                     <${ListItem} key=${item.id} ...${item}/>`)}
-                            </ul>
-                        </div>`;
+                            </div>
+                        </section>`;
                 }
             }
 
             function ListItem({name, username, email}) {
                 return html`
                     <article>
-                        <h2>${name}</h2>
-                        <p>${username}</p>
-                        <p>${email}</p>
+                        <hgroup>
+                            <h3>${name}</h3>
+                            <p>@${username}</p>
+                        </hgroup>
+                        <p><a href="mailto:${email}">${email}</a></p>
                     </article>`;
             }
 
@@ -93,11 +95,11 @@
                 const [count, setCount] = useState(0);
 
                 return html`
-                    <div>
+                    <section>
                         Settings
 
                         <button onClick=${() => setCount(count + 1)}>Count: ${count}</button>
-                    </div>`;
+                    </section>`;
             }
 
             return {SettingsTab};
@@ -115,10 +117,27 @@
 
             return html`
                 <div>
-                    <nav>
-                        <button onClick=${() => setCurrentTab('list')}>List</button>
-                        <button onClick=${() => setCurrentTab('settings')}>Settings</button>
-                    </nav>
+                    <header>
+                        <h1>Preact Practice</h1>
+                        <nav>
+                            <ul>
+                                <li>
+                                    <button
+                                        onClick=${() => setCurrentTab('list')}
+                                        aria-current=${currentTab === 'list' ? 'page' : undefined}>
+                                        List
+                                    </button>
+                                </li>
+                                <li>
+                                    <button
+                                        onClick=${() => setCurrentTab('settings')}
+                                        aria-current=${currentTab === 'settings' ? 'page' : undefined}>
+                                        Settings
+                                    </button>
+                                </li>
+                            </ul>
+                        </nav>
+                    </header>
                     ${currentTab === 'list' ?
                             html`
                                 <${ListTab}/>` :
