@@ -14,7 +14,7 @@
      *   IIFE로 디렉토리/파일/컴포넌트 트리를 구성하였습니다.
      *
      * 파일 구조는 세 단위로 나뉩니다
-     * - 글로벌 import 섹션
+     * - 글로벌 import + 초기화 섹션
      * - 모듈 정의 섹션
      * - 이외 보일러플레이트 섹션
      *
@@ -24,32 +24,62 @@
      * - 모듈 정의 순서에 의존성이 있습니다(호이스팅 안 됨).
      */
 
-    import {html, render, useState} from 'https://esm.sh/htm/preact/standalone'
+    import {h, render} from 'https://esm.sh/preact';
+    import {useState} from 'https://esm.sh/preact/hooks';
+    import htm from 'https://esm.sh/htm';
+    import {
+        QueryClient,
+        QueryClientProvider,
+        useQuery
+    } from 'https://esm.sh/@tanstack/preact-query';
+
+    const html = htm.bind(h);
+    const queryClient = new QueryClient();
+
+    const data = (() => {
+        const users = (() => {
+            async function fetchUsers() {
+                return fetch('https://jsonplaceholder.typicode.com/users').then(res => res.json());
+            }
+
+            return {fetchUsers};
+        })();
+
+        return {users};
+    })();
 
     const tabs = (() => {
         const List = (() => {
             function ListTab() {
-                const items = [
-                    {title: 'Item 1', description: 'Description 1'},
-                    {title: 'Item 2', description: 'Description 2'},
-                    {title: 'Item 3', description: 'Description 3'},
-                ];
+                const users = useQuery({queryKey: ['users'], queryFn: data.users.fetchUsers});
 
-                return html`
-                <div>
-                    <ul>
-                        ${items.map(item => html`
-                            <${ListItem} ...${item}/>`)}
-                    </ul>
-                </div>`;
+                if (users.isPending) {
+                    return html`
+                        <div>Loading...</div>`;
+                } else if (users.isError) {
+                    return html`
+                        <div>Error: ${users.error.message}</div>`;
+                } else if (users.data?.length === 0) {
+                    return html`
+                        <div>No data</div>`;
+                } else {
+                    return html`
+                        <div>
+                            <ul>
+                                ${users.data?.map(item => html`
+                                    <${ListItem} key=${item.id} ...${item}/>`)}
+                            </ul>
+                        </div>`;
+                }
             }
 
-            function ListItem({title, description}) {
+            function ListItem({name, username, email}) {
                 return html`
-                <li>
-                    <h2>${title}</h2>
-                    <p>${description}</p>
-                </li>`;
+                    <li>
+                        <h2>${name}</h2>
+                        <p>${username}</p>
+                        <p>${email}</p>
+                    </li>`;
             }
 
             return {ListTab};
@@ -60,11 +90,11 @@
                 const [count, setCount] = useState(0);
 
                 return html`
-                <div>
-                    Settings
+                    <div>
+                        Settings
 
-                    <button onClick=${() => setCount(count + 1)}>Count: ${count}</button>
-                </div>`;
+                        <button onClick=${() => setCount(count + 1)}>Count: ${count}</button>
+                    </div>`;
             }
 
             return {SettingsTab};
@@ -86,9 +116,9 @@
                     <button onClick=${() => setCurrentTab('settings')}>Settings</button>
 
                     ${currentTab === 'list' ?
-                html`
+                            html`
                                 <${ListTab}/>` :
-                html`
+                            html`
                                 <${SettingsTab}/>`}
                 </div>`;
         }
@@ -101,14 +131,17 @@
 
         function App() {
             return html`
-            <${MainPage}/>
-        `;
+                <${QueryClientProvider} client=${queryClient}>
+                    <${MainPage}/>
+                </>
+            `;
         }
 
         return {App};
     })();
 
-    render(html`<${index.App}/>`, document.body);
+    render(html`
+        <${index.App}/>`, document.body);
 </script>
 </body>
 </html>
