@@ -1,7 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <title>Preact Practice</title>
 </head>
 <body>
@@ -75,11 +78,11 @@
 
             function ListItem({name, username, email}) {
                 return html`
-                    <li>
+                    <article>
                         <h2>${name}</h2>
                         <p>${username}</p>
                         <p>${email}</p>
-                    </li>`;
+                    </article>`;
             }
 
             return {ListTab};
@@ -112,9 +115,10 @@
 
             return html`
                 <div>
-                    <button onClick=${() => setCurrentTab('list')}>List</button>
-                    <button onClick=${() => setCurrentTab('settings')}>Settings</button>
-
+                    <nav>
+                        <button onClick=${() => setCurrentTab('list')}>List</button>
+                        <button onClick=${() => setCurrentTab('settings')}>Settings</button>
+                    </nav>
                     ${currentTab === 'list' ?
                             html`
                                 <${ListTab}/>` :
@@ -132,7 +136,9 @@
         function App() {
             return html`
                 <${QueryClientProvider} client=${queryClient}>
-                    <${MainPage}/>
+                    <main class="container">
+                        <${MainPage}/>
+                    </main>
                 </>
             `;
         }
