@@ -1209,7 +1209,8 @@ function wsConnect() {
     var currentEpoch = ++wsEpoch;
     syncing = true; wsBuffer = [];
 
-    ws = new WebSocket('ws://' + host + '/ws?token=' + wsToken);
+    var wsScheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    ws = new WebSocket(wsScheme + host + '/ws?token=' + wsToken);
 
     ws.onopen = function() {
         document.getElementById('wsDot').className = 'ws-dot dot-ok';
