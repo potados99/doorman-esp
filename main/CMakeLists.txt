@@ -9,10 +9,11 @@ idf_component_register(
         "control_task.cpp"
         "sm_task.cpp"
         "auto_unlock.cpp"
-        "device_config_service.cpp"
+        "device/device_config.cpp"
         "monitor_task.cpp"
     INCLUDE_DIRS
         "."
+        "device"
     REQUIRES
         app_update
         esp_driver_gpio

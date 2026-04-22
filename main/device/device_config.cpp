@@ -1,4 +1,4 @@
-#include "device_config_service.h"
+#include "device_config.h"
 
 #include <cstdio>
 #include <cstring>

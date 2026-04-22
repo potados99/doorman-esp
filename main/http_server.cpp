@@ -2,7 +2,7 @@
 #include "bt_manager.h"
 #include "auto_unlock.h"
 #include "control_task.h"
-#include "device_config_service.h"
+#include "device/device_config.h"
 #include "door_control.h"
 #include "monitor_task.h"
 #include "nvs_config.h"

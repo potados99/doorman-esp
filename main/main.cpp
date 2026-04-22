@@ -3,7 +3,7 @@
 #include "control_task.h"
 #include "door_control.h"
 #include "http_server.h"
-#include "device_config_service.h"
+#include "device/device_config.h"
 #include "monitor_task.h"
 #include "sm_task.h"
 #include "wifi.h"

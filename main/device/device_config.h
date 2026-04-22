@@ -1,5 +1,5 @@
-#ifndef DOORMAN_ESP_DEVICE_CONFIG_SERVICE_H
-#define DOORMAN_ESP_DEVICE_CONFIG_SERVICE_H
+#ifndef DOORMAN_ESP_DEVICE_CONFIG_H
+#define DOORMAN_ESP_DEVICE_CONFIG_H
 
 #include "device.h"
 
@@ -63,4 +63,4 @@ void device_config_delete(const uint8_t (&mac)[6]);
 int device_config_get_all(uint8_t (*macs)[6], DeviceConfig *configs, int max);
 
 
-#endif //DOORMAN_ESP_DEVICE_CONFIG_SERVICE_H
+#endif //DOORMAN_ESP_DEVICE_CONFIG_H
