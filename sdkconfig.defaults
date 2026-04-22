@@ -76,6 +76,17 @@ CONFIG_BT_GATT_MAX_SR_ATTRIBUTES=30
 CONFIG_BT_GATT_MAX_SR_PROFILES=3
 CONFIG_BT_ACL_CONNECTIONS=2
 
+# ── IRAM / Flash 다이어트 ──
+# heap_caps_* 함수들을 IRAM에서 flash로 이동. ~2KB IRAM 회수.
+# ISR 경로에서 heap 호출이 미세하게 느려지지만 실측 영향 미미.
+CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
+# printf 등의 nano 포맷 사용 (float 지원 제거). ~3~5KB flash/IRAM 회수.
+# 이 프로젝트는 %f 계열을 쓰지 않으므로 영향 없음.
+CONFIG_LIBC_NEWLIB_NANO_FORMAT=y
+# 주의: CONFIG_ESP_WIFI_IRAM_OPT / ESP_WIFI_RX_IRAM_OPT는 이미 꺼져있음
+# (sdkconfig 실측 확인). BT_CTRL_CODE_IN_IRAM / LIBC_LOCKS_PLACE_IN_IRAM
+# 은 ISR/BT 안정성 리스크로 건드리지 않음.
+
 # ── mbedTLS (Slack notifier outbound HTTPS 지원) ──
 # SSL I/O 버퍼(기본 32KB 상시 점유)를 handshake 시에만 할당·해제. idle
 # 메모리 수십 KB 회수. Slack 호출이 드물기 때문에 매번 할당·해제 오버헤드
