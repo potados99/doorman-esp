@@ -408,6 +408,20 @@
 <!-- ── 관리 탭 ── -->
 <div id="tab-manage" class="tab-panel">
     <div class="section">
+        <div class="section-title">알림</div>
+
+        <div class="card">
+            <div class="card-label">Slack Webhook</div>
+            <div id="slackState" class="hint" style="margin-bottom:10px;">상태 확인 중…</div>
+            <label>Webhook URL</label>
+            <input id="slackUrl" type="url" maxlength="256"
+                   placeholder="https://hooks.slack.com/services/... (비우면 알림 해제)">
+            <button class="btn btn-blue" onclick="Slack.save()">저장</button>
+            <div id="slackStatus" class="status"></div>
+        </div>
+    </div>
+
+    <div class="section">
         <div class="section-title" style="color:#dc2626;">Danger Zone</div>
 
         <div class="card" style="border-color:#fecaca;">
@@ -1302,9 +1316,67 @@ function rebootDevice() {
 }
 
 /* ──────────────────────────────────────────
+   Slack 알림 설정 (IIFE 모듈 — 단일 네임스페이스 Slack만 노출)
+   ────────────────────────────────────────── */
+var Slack = (function() {
+    function renderState(configured) {
+        var el = document.getElementById('slackState');
+        if (configured) {
+            el.textContent = '✓ 설정됨 — 문 열기 API 호출 시 채널에 알림';
+            el.style.color = '#16a34a';
+        } else {
+            el.textContent = '미설정 — 알림 없음';
+            el.style.color = '#9ca3af';
+        }
+    }
+
+    function loadStatus() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/slack/status');
+        xhr.onload = function() {
+            if (xhr.status !== 200) {
+                renderState(false);
+                return;
+            }
+            try {
+                var r = JSON.parse(xhr.responseText);
+                renderState(!!r.configured);
+            } catch (e) {
+                renderState(false);
+            }
+        };
+        xhr.onerror = function() { renderState(false); };
+        xhr.send();
+    }
+
+    function save() {
+        var input = document.getElementById('slackUrl');
+        var url = input.value.trim();
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/slack/update');
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                show('slackStatus', url ? '저장 완료' : '알림 해제 완료', 'ok');
+                /* 저장 후 입력값 숨김 — wifi pass 패턴 준수 (URL 재노출 금지) */
+                input.value = '';
+                loadStatus();
+            } else {
+                show('slackStatus', 'Error: ' + xhr.responseText, 'err');
+            }
+        };
+        xhr.onerror = function() { show('slackStatus', '연결 끊김', 'err'); };
+        xhr.send('url=' + encodeURIComponent(url));
+    }
+
+    return { save: save, loadStatus: loadStatus };
+})();
+
+/* ──────────────────────────────────────────
    초기화
    ────────────────────────────────────────── */
 loadAutoUnlockStatus();
+Slack.loadStatus();
 wsConnect();
 
 (function() {

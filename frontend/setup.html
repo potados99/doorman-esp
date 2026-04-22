@@ -28,10 +28,6 @@
     <label for="pass">WiFi Password</label>
     <input id="pass" type="password" maxlength="63">
 
-    <label for="slack">Slack Webhook URL <span style="color:#8b949e;font-weight:400">(optional)</span></label>
-    <input id="slack" type="url" maxlength="256" autocomplete="off"
-           placeholder="https://hooks.slack.com/services/...">
-
     <button id="btn" type="button" onclick="save()">Save &amp; Reboot</button>
     <div id="status"></div>
 
@@ -43,35 +39,9 @@ function show(msg, cls) {
     s.style.display = 'block';
 }
 
-function resetBtn() {
-    var btn = document.getElementById('btn');
-    btn.disabled = false;
-    btn.textContent = 'Save & Reboot';
-}
-
-function saveWifi(ssid, pass) {
-    show('Saving WiFi credentials...', 'run');
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/wifi/setup');
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            show('Saved! Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
-        } else {
-            show('Error: ' + xhr.responseText, 'err');
-            resetBtn();
-        }
-    };
-    xhr.onerror = function() {
-        show('Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
-    };
-    xhr.send('ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass));
-}
-
 function save() {
     var ssid = document.getElementById('ssid').value.trim();
     var pass = document.getElementById('pass').value;
-    var slackUrl = document.getElementById('slack').value.trim();
 
     if (!ssid) {
         show('SSID is required.', 'err');
@@ -81,30 +51,24 @@ function save() {
     var btn = document.getElementById('btn');
     btn.disabled = true;
     btn.textContent = 'Saving...';
+    show('Saving WiFi credentials...', 'run');
 
-    // Slack webhook URL이 있으면 WiFi 저장 직전에 먼저 NVS에 반영.
-    // WiFi 저장 후엔 재부팅이라 추가 요청 불가 — 반드시 선행.
-    if (slackUrl) {
-        show('Saving Slack webhook...', 'run');
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/slack/update');
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                saveWifi(ssid, pass);
-            } else {
-                show('Slack URL error: ' + xhr.responseText + '. WiFi save aborted.', 'err');
-                resetBtn();
-            }
-        };
-        xhr.onerror = function() {
-            show('Slack save network error. WiFi save aborted.', 'err');
-            resetBtn();
-        };
-        xhr.send('url=' + encodeURIComponent(slackUrl));
-    } else {
-        saveWifi(ssid, pass);
-    }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/wifi/setup');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            show('Saved! Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
+        } else {
+            show('Error: ' + xhr.responseText, 'err');
+            btn.disabled = false;
+            btn.textContent = 'Save & Reboot';
+        }
+    };
+    xhr.onerror = function() {
+        show('Device is rebooting. Connect to your WiFi and visit http://doorman.local', 'ok');
+    };
+    xhr.send('ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass));
 }
 </script>
 </body>
