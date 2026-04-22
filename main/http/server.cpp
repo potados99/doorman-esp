@@ -384,7 +384,11 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
     char ip[48] = {};
     get_client_ip(req, ip, sizeof(ip));
 
-    char ua[80] = {};
+    /* UA는 최대 일반 브라우저 수준을 수용. 메시지 예산 분석:
+     *   "🚪 문열림 요청" 20B + "\n• IP: <15>" 24B + "\n• UA: " 9B = 53B 헤더
+     *   → kMaxMsgLen(256)에서 UA 최대 ~200B 가능
+     * 일반 Safari/Chrome UA가 120~150자라 160B 버퍼면 여유 있게 수용. */
+    char ua[160] = {};
     httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
 
     char msg[256];
