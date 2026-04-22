@@ -118,13 +118,16 @@ extern "C" void app_main(void) {
     // WiFi: NVS 크레덴셜 확인 → STA 시도 → 실패 시 SoftAP 폴백
     WifiMode mode = wifi_start();
 
+    // Slack notifier: webhook URL 로드 + 상주 태스크 시작.
+    // start_webserver() 이전에 호출해야 /api/slack/status 등 엔드포인트가
+    // 라우트 등록 시점부터 올바른 상태를 반환합니다 (race 방지).
+    // safe mode에서도 동작해야 웹 UI의 /api/slack/update API로 URL을 변경
+    // 가능합니다 (문열림 알림 자체는 safe mode에서 문열기 API가 살아있지
+    // 않아 무관).
+    slack_notifier_init();
+
     // 모드에 따라 다른 웹서버 구성 (STA에서 WS 로그 스트리밍 포함)
     start_webserver(mode);
-
-    // Slack notifier: webhook URL 로드 + 상주 태스크 시작. safe mode에서도
-    // 동작해야 웹 UI의 /api/slack/update API로 URL을 변경할 수 있습니다
-    // (문열림 알림 자체는 safe mode에서 문열기 API가 살아있지 않아 무관).
-    slack_notifier_init();
 
     if (s_safe_mode) {
         ESP_LOGW(TAG, "Safe mode: BT/SM/Control tasks skipped. OTA and web UI available.");

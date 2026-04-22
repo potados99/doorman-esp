@@ -997,7 +997,8 @@ httpd_handle_t start_webserver(WifiMode mode) {
             /* SoftAP 초기 provisioning 단계에서 slack webhook URL도 선택 저장. */
             {"/api/slack/update", HTTP_POST, slack_update_handler, false},
         };
-        ok = register_routes(server, softap_routes, 3);
+        ok = register_routes(server, softap_routes,
+                             sizeof(softap_routes) / sizeof(softap_routes[0]));
     } else {
         static const Route sta_routes[] = {
             {"/",                          HTTP_GET,  index_page_handler,          false},
@@ -1021,7 +1022,8 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/coredump",              HTTP_GET,  coredump_handler,            false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 20);
+        ok = register_routes(server, sta_routes,
+                             sizeof(sta_routes) / sizeof(sta_routes[0]));
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;

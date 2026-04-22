@@ -23,9 +23,12 @@ static constexpr int kQueueDepth = 3;
 /** 메시지 body 최대 길이. 초과분은 producer에서 잘림. */
 static constexpr size_t kMaxMsgLen = 256;
 
-/** notifier_task 스택. 내부 RAM. TLS handshake burst peak 보수적 8KB.
- *  초기 배포에서 uxTaskGetStackHighWaterMark로 실측 후 조정할 것. */
-static constexpr uint32_t kTaskStackSize = 8192;
+/** notifier_task 스택. 내부 RAM. TLS handshake + crt_bundle 파싱 + JSON
+ *  빌드 버퍼(~544B)를 모두 수용하기 위해 12288B로 여유 확보.
+ *  실측 HWM은 매 POST 직후 로그로 관찰 가능 — sm_task 사고처럼 burst peak
+ *  60% 룰로 수축 여부를 나중에 결정.
+ *  docs/solutions/runtime-errors/sm-task-stack-overflow-cascade.md */
+static constexpr uint32_t kTaskStackSize = 12288;
 
 /** notifier_task 우선순위. monitor(1) 위, sm(5) 아래. */
 static constexpr UBaseType_t kTaskPriority = 4;
@@ -188,17 +191,21 @@ static void post_to_slack(const char *url, const char *body, size_t len) {
     esp_http_client_set_post_field(client, json, json_len);
 
     esp_err_t err = esp_http_client_perform(client);
+    /* 스택 HWM은 성공/실패 경로 둘 다 찍어야 실측 커버리지가 완전.
+       handshake 실패 경로가 피크를 찍는 경우가 잦음 (TLS alert 파싱 등). */
+    unsigned hwm_bytes = static_cast<unsigned>(
+        uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t));
+
     if (err == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
         if (status == 200) {
-            ESP_LOGI(TAG, "Notified Slack (%d bytes, stack hwm=%u)",
-                     json_len,
-                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
+            ESP_LOGI(TAG, "Notified Slack (%d bytes, stack hwm=%u)", json_len, hwm_bytes);
         } else {
-            ESP_LOGW(TAG, "Slack returned HTTP %d", status);
+            ESP_LOGW(TAG, "Slack returned HTTP %d (stack hwm=%u)", status, hwm_bytes);
         }
     } else {
-        ESP_LOGW(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "HTTP perform failed: %s (stack hwm=%u)",
+                 esp_err_to_name(err), hwm_bytes);
     }
 
     esp_http_client_cleanup(client);
