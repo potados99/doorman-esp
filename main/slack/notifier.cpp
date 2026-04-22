@@ -129,7 +129,8 @@ static esp_err_t save_url_to_nvs(const char *url) {
  * 이스케이프 규칙 (Slack에서 JSON 파싱 깨지지 않도록):
  *   - " → \"
  *   - \ → \\
- *   - 제어문자(0x00~0x1F, 0x7F) → 제거 (단순 drop, \uXXXX 전개 안 함)
+ *   - \n, \r, \t → 각각 \n, \r, \t (메시지에서 개행은 Slack이 줄바꿈 렌더링)
+ *   - 기타 제어문자(0x00~0x1F, 0x7F) → 제거 (단순 drop, \uXXXX 전개 안 함)
  *   - 나머지 UTF-8 바이트는 그대로 통과 (Slack이 UTF-8 허용)
  *
  * 반환: 작성된 바이트 수 (null 제외), out 초과 시 -1.
@@ -141,6 +142,9 @@ static int build_json_body(const char *msg, size_t msg_len, char *out, size_t ou
         out[i++] = c;
         return true;
     };
+    auto put_escaped = [&](char c) -> bool {
+        return put('\\') && put(c);
+    };
 
     const char *prefix = "{\"text\":\"";
     for (const char *p = prefix; *p; ++p) {
@@ -148,11 +152,21 @@ static int build_json_body(const char *msg, size_t msg_len, char *out, size_t ou
     }
     for (size_t j = 0; j < msg_len; ++j) {
         unsigned char c = static_cast<unsigned char>(msg[j]);
-        if (c < 0x20 || c == 0x7F) continue;  // 제어문자 제거
+        bool ok = true;
         if (c == '"' || c == '\\') {
-            if (!put('\\')) return -1;
+            ok = put_escaped(static_cast<char>(c));
+        } else if (c == '\n') {
+            ok = put_escaped('n');
+        } else if (c == '\r') {
+            ok = put_escaped('r');
+        } else if (c == '\t') {
+            ok = put_escaped('t');
+        } else if (c < 0x20 || c == 0x7F) {
+            continue;  // 기타 제어문자는 제거
+        } else {
+            ok = put(static_cast<char>(c));
         }
-        if (!put(static_cast<char>(c))) return -1;
+        if (!ok) return -1;
     }
     if (!put('"') || !put('}')) return -1;
     out[i] = '\0';
@@ -327,12 +341,4 @@ esp_err_t slack_notifier_update_url(const char *url) {
 
     ESP_LOGI(TAG, "Webhook URL %s", clearing ? "cleared" : "updated");
     return ESP_OK;
-}
-
-bool slack_notifier_is_configured() {
-    if (s_url_mutex == nullptr) return false;
-    xSemaphoreTake(s_url_mutex, portMAX_DELAY);
-    bool configured = (s_webhook_url != nullptr);
-    xSemaphoreGive(s_url_mutex);
-    return configured;
 }

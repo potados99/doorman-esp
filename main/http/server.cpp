@@ -25,6 +25,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/ringbuf.h>
 #include <freertos/task.h>
+#include <lwip/sockets.h>
+#include <lwip/inet.h>
 #include <mbedtls/base64.h>
 
 static const char *TAG = "httpd";
@@ -323,6 +325,49 @@ static esp_err_t index_page_handler(httpd_req_t *req) {
     return httpd_resp_send(req, index_html_start, HTTPD_RESP_USE_STRLEN);
 }
 
+/**
+ * 요청 헬퍼: 원격 IP를 추출합니다.
+ *
+ * 우선순위:
+ *   1. X-Forwarded-For 헤더 (Caddy/nginx 등 reverse proxy 뒤에서 정확한 클라이언트 IP)
+ *      쉼표로 여러 홉이 적혀오면 첫 번째만 사용 (가장 바깥 클라이언트).
+ *   2. getpeername() — 직접 연결(로컬 네트워크) 시 socket peer IP
+ *
+ * 내부망이라 XFF 스푸핑 위험은 낮고, 로그 용도(알림 메시지)라 strict
+ * 검증은 생략합니다.
+ */
+static void get_client_ip(httpd_req_t *req, char *out, size_t out_size) {
+    if (out_size == 0) return;
+    out[0] = '\0';
+
+    char xff[64];
+    if (httpd_req_get_hdr_value_str(req, "X-Forwarded-For", xff, sizeof(xff)) == ESP_OK) {
+        /* 첫 쉼표까지만 복사 */
+        size_t n = 0;
+        while (xff[n] && xff[n] != ',' && xff[n] != ' ' && n < out_size - 1) {
+            out[n] = xff[n];
+            n++;
+        }
+        out[n] = '\0';
+        if (n > 0) return;
+    }
+
+    int sockfd = httpd_req_to_sockfd(req);
+    if (sockfd < 0) return;
+
+    struct sockaddr_in6 addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername(sockfd, reinterpret_cast<struct sockaddr *>(&addr), &len) != 0) {
+        return;
+    }
+    if (addr.sin6_family == AF_INET) {
+        auto *v4 = reinterpret_cast<struct sockaddr_in *>(&addr);
+        inet_ntop(AF_INET, &v4->sin_addr, out, out_size);
+    } else {
+        inet_ntop(AF_INET6, &addr.sin6_addr, out, out_size);
+    }
+}
+
 static esp_err_t door_open_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
@@ -330,11 +375,23 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
 
     /**
      * 인증 통과한 API 호출 자체가 보안 이벤트 기록 대상. 실제 펄스 성공
-     * 여부와 독립적으로 알림을 쏩니다 (현재 ManualUnlock은 gate 없이 항상
-     * pulse로 이어지므로 실질적으로 1:1). BLE 자동 해제(AutoUnlock) 경로는
+     * 여부와 독립적으로 알림을 쏩니다. BLE 자동 해제(AutoUnlock) 경로는
      * control_task를 공유하지만 이 핸들러로 진입하지 않으므로 알림 없음.
+     *
+     * 메시지는 감사 로그 수준으로 IP + User-Agent 포함. UA는 너무 길면
+     * (모바일 크롬 등 200+자) 앞부분만 잘라서 씀.
      */
-    slack_notifier_send("🚪 문열림 요청");
+    char ip[48] = {};
+    get_client_ip(req, ip, sizeof(ip));
+
+    char ua[80] = {};
+    httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "🚪 문열림 요청\n• IP: %s\n• UA: %s",
+             ip[0] ? ip : "unknown",
+             ua[0] ? ua : "unknown");
+    slack_notifier_send(msg);
 
     /**
      * 이전: door_trigger_pulse() 직접 호출
@@ -681,18 +738,6 @@ static esp_err_t slack_update_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", "OK");
 }
 
-/** Slack 설정 여부만 반환 (URL 값은 노출 금지 — wifi pass와 동일 패턴). */
-static esp_err_t slack_status_handler(httpd_req_t *req) {
-    if (!check_auth(req)) {
-        return ESP_OK;
-    }
-    httpd_resp_set_type(req, "application/json");
-    const char *json = slack_notifier_is_configured()
-        ? "{\"configured\":true}"
-        : "{\"configured\":false}";
-    return httpd_resp_sendstr(req, json);
-}
-
 /**
  * 본딩된 기기 목록 + 기기별 config + SM 스냅샷을 JSON으로 반환합니다.
  * snprintf + chunked 전송, 힙 할당 없습니다.
@@ -1013,7 +1058,6 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
             {"/api/slack/update",          HTTP_POST, slack_update_handler,        false},
-            {"/api/slack/status",          HTTP_GET,  slack_status_handler,        false},
             {"/api/devices",               HTTP_GET,  devices_handler,             false},
             {"/api/devices/config",        HTTP_POST, devices_config_handler,      false},
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},

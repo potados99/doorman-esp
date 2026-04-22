@@ -44,9 +44,4 @@ void slack_notifier_send(const char *msg);
  */
 esp_err_t slack_notifier_update_url(const char *url);
 
-/**
- * 현재 URL 설정 여부만 반환 (UI 표시용). URL 값은 절대 노출하지 않음.
- */
-bool slack_notifier_is_configured();
-
 #endif //DOORMAN_ESP_SLACK_NOTIFIER_H
