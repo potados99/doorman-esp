@@ -992,10 +992,12 @@ httpd_handle_t start_webserver(WifiMode mode) {
 
     if (mode == WifiMode::SoftAP) {
         static const Route softap_routes[] = {
-            {"/",               HTTP_GET,  setup_page_handler, false},
-            {"/api/wifi/setup", HTTP_POST, wifi_setup_handler, false},
+            {"/",                 HTTP_GET,  setup_page_handler,   false},
+            {"/api/wifi/setup",   HTTP_POST, wifi_setup_handler,   false},
+            /* SoftAP 초기 provisioning 단계에서 slack webhook URL도 선택 저장. */
+            {"/api/slack/update", HTTP_POST, slack_update_handler, false},
         };
-        ok = register_routes(server, softap_routes, 2);
+        ok = register_routes(server, softap_routes, 3);
     } else {
         static const Route sta_routes[] = {
             {"/",                          HTTP_GET,  index_page_handler,          false},
