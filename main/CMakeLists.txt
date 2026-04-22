@@ -11,6 +11,7 @@ idf_component_register(
         "monitor/monitor_task.cpp"
         "device/device_config.cpp"
         "auth/auth.cpp"
+        "slack/notifier.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES
