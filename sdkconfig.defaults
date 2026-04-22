@@ -75,3 +75,20 @@ CONFIG_ESP_WIFI_RX_BA_WIN=8
 CONFIG_BT_GATT_MAX_SR_ATTRIBUTES=30
 CONFIG_BT_GATT_MAX_SR_PROFILES=3
 CONFIG_BT_ACL_CONNECTIONS=2
+
+# ── mbedTLS (Slack notifier outbound HTTPS 지원) ──
+# SSL I/O 버퍼(기본 32KB 상시 점유)를 handshake 시에만 할당·해제. idle
+# 메모리 수십 KB 회수. Slack 호출이 드물기 때문에 매번 할당·해제 오버헤드
+# 수락 가능.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# handshake 후 peer cert / config data heap 반환 (dynamic buffer와 함께)
+CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+# Slack 요청 body는 수백 바이트 → 2KB로 충분. 2KB 절감.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
+# 인증서 번들: FULL(Mozilla 전체 ~130개, flash ~500KB) → CMN(~41개 상위 CA).
+# hooks.slack.com은 DigiCert Global Root 서명이라 CMN으로 커버 가능.
+# 이 프로젝트의 outbound TLS는 Slack notifier가 유일한 경로이며,
+# OTA(http push)와 웹 UI(reverse proxy 종단)는 bundle과 무관.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=n
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
