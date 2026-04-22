@@ -1,7 +1,23 @@
 #ifndef DOORMAN_ESP_CONFIG_SERVICE_H
 #define DOORMAN_ESP_CONFIG_SERVICE_H
 
-#include "config.h"
+/**
+ * 앱 전역 설정.
+ *
+ * 감지 파라미터(rssi, timeout 등)는 DeviceConfig으로 이전되었습니다.
+ * AppConfig에는 앱 수준 토글만 남습니다.
+ *
+ * NOTE: 이 구조체는 S3에서 door/auto_unlock 모듈로 완전히 해체될 예정입니다.
+ * S2에선 타입 정의를 components/config에서 여기로 임시 이주만 수행합니다.
+ */
+struct AppConfig {
+    /**
+     * BT 자동 문열림 활성화 여부.
+     * false이면 BT 기기가 감지되어도 자동으로 문을 열지 않습니다.
+     * 웹 UI의 수동 문열기(ManualUnlock)는 이 값과 무관하게 항상 가능합니다.
+     */
+    bool auto_unlock_enabled = false;
+};
 
 /**
  * AppConfig 서비스: NVS에서 로드한 앱 설정을 스레드 안전하게 관리합니다.

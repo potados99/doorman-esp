@@ -26,6 +26,7 @@ idf_component_register(
         nvs_flash
         espcoredump
         statemachine
+        device
     EMBED_TXTFILES
         "../frontend/index.html"
         "../frontend/setup.html"

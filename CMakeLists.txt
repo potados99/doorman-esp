@@ -33,19 +33,19 @@ if(HOST_TEST)
     # 2. 테스트 바이너리 add_executable에 테스트 코드(소스)를 추가해주고
     #    해당 컴포넌트를 테스트 바이너리에 target_link_libraries 해줍니다.
 
-    # config 컴포넌트
-    add_library(config components/config/config.cpp)
-    target_include_directories(config PUBLIC components/config/include)
+    # device 컴포넌트 — DeviceConfig 타입 + validate (순수, host_test 대상)
+    add_library(device components/device/device.cpp)
+    target_include_directories(device PUBLIC components/device/include)
 
     # statemachine 컴포넌트
     add_library(statemachine components/statemachine/statemachine.cpp)
     target_include_directories(statemachine PUBLIC components/statemachine/include)
-    target_link_libraries(statemachine PUBLIC config)
+    target_link_libraries(statemachine PUBLIC device)
 
     # 테스트 바이너리
     add_executable(host_test_executable
             # 여기 아래에 테스트 코드를 적어주면 됩니다.
-            host_test/config_test.cpp
+            host_test/device_test.cpp
             host_test/statemachine_test.cpp
     )
     target_link_libraries(host_test_executable

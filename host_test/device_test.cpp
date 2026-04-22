@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "config.h"
+#include "device.h"
 
 // ── DeviceConfig 테스트 ───────────────────────────────────────────────────────
 

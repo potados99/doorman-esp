@@ -1,7 +1,7 @@
 #ifndef DOORMAN_ESP_STATEMACHINE_H
 #define DOORMAN_ESP_STATEMACHINE_H
 
-#include "config.h"
+#include "device.h"
 
 #include <array>
 #include <cstdint>

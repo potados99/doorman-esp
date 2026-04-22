@@ -1,7 +1,7 @@
 #ifndef DOORMAN_ESP_DEVICE_CONFIG_SERVICE_H
 #define DOORMAN_ESP_DEVICE_CONFIG_SERVICE_H
 
-#include "config.h"
+#include "device.h"
 
 /**
  * 기기별 설정 서비스: NVS에 MAC 주소를 키로 DeviceConfig blob을 저장합니다.
