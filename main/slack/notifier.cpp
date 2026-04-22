@@ -1,8 +1,11 @@
 #include "slack/notifier.h"
 
+#include <cstdio>
 #include <cstring>
 
+#include <esp_crt_bundle.h>
 #include <esp_heap_caps.h>
+#include <esp_http_client.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -115,15 +118,90 @@ static esp_err_t save_url_to_nvs(const char *url) {
     return ESP_OK;
 }
 
-// ── HTTPS POST (T4에서 실제 구현) ────────────────────────────────────────────
+// ── HTTPS POST ──────────────────────────────────────────────────────────────
 
 /**
- * Slack Webhook에 body를 POST. T2+T3 커밋에선 스텁.
- * 실제 esp_http_client 호출은 T4 커밋에서 추가됩니다.
+ * JSON body 구성 with escape. {"text":"<escaped msg>"} 형태.
+ *
+ * 이스케이프 규칙 (Slack에서 JSON 파싱 깨지지 않도록):
+ *   - " → \"
+ *   - \ → \\
+ *   - 제어문자(0x00~0x1F, 0x7F) → 제거 (단순 drop, \uXXXX 전개 안 함)
+ *   - 나머지 UTF-8 바이트는 그대로 통과 (Slack이 UTF-8 허용)
+ *
+ * 반환: 작성된 바이트 수 (null 제외), out 초과 시 -1.
+ */
+static int build_json_body(const char *msg, size_t msg_len, char *out, size_t out_size) {
+    size_t i = 0;
+    auto put = [&](char c) -> bool {
+        if (i + 1 >= out_size) return false;
+        out[i++] = c;
+        return true;
+    };
+
+    const char *prefix = "{\"text\":\"";
+    for (const char *p = prefix; *p; ++p) {
+        if (!put(*p)) return -1;
+    }
+    for (size_t j = 0; j < msg_len; ++j) {
+        unsigned char c = static_cast<unsigned char>(msg[j]);
+        if (c < 0x20 || c == 0x7F) continue;  // 제어문자 제거
+        if (c == '"' || c == '\\') {
+            if (!put('\\')) return -1;
+        }
+        if (!put(static_cast<char>(c))) return -1;
+    }
+    if (!put('"') || !put('}')) return -1;
+    out[i] = '\0';
+    return static_cast<int>(i);
+}
+
+/**
+ * Slack Webhook에 body를 POST.
+ *
+ * TLS handshake는 mbedtls가 담당 (CONFIG_MBEDTLS_DYNAMIC_BUFFER로
+ * idle 메모리 최소화, CMN bundle로 hooks.slack.com 인증서 검증).
+ * 응답은 status만 확인, body 파싱 안 함.
  */
 static void post_to_slack(const char *url, const char *body, size_t len) {
-    ESP_LOGI(TAG, "(stub) would POST %u bytes to %.40s...", (unsigned)len, url);
-    (void)body;
+    /* JSON 버퍼는 스택. kMaxMsgLen=256 + JSON 오버헤드 + 이스케이프 여유. */
+    char json[kMaxMsgLen * 2 + 32];
+    int json_len = build_json_body(body, len, json, sizeof(json));
+    if (json_len < 0) {
+        ESP_LOGW(TAG, "JSON build overflow — drop");
+        return;
+    }
+
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.method = HTTP_METHOD_POST;
+    config.timeout_ms = 5000;
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == nullptr) {
+        ESP_LOGE(TAG, "http_client_init failed");
+        return;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json, json_len);
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        int status = esp_http_client_get_status_code(client);
+        if (status == 200) {
+            ESP_LOGI(TAG, "Notified Slack (%d bytes, stack hwm=%u)",
+                     json_len,
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
+        } else {
+            ESP_LOGW(TAG, "Slack returned HTTP %d", status);
+        }
+    } else {
+        ESP_LOGW(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
 }
 
 // ── 태스크 ──────────────────────────────────────────────────────────────────

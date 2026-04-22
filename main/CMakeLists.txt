@@ -18,8 +18,10 @@ idf_component_register(
         app_update
         esp_driver_gpio
         esp_event
+        esp_http_client
         esp_http_server
         esp_netif
+        esp-tls
         esp_ringbuf
         bt
         mbedtls
