@@ -7,6 +7,7 @@
 #include "door/control.h"
 #include "door/control_task.h"
 #include "monitor/monitor_task.h"
+#include "slack/notifier.h"
 #include "wifi/wifi.h"
 
 #include <algorithm>
@@ -328,6 +329,14 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
     }
 
     /**
+     * 인증 통과한 API 호출 자체가 보안 이벤트 기록 대상. 실제 펄스 성공
+     * 여부와 독립적으로 알림을 쏩니다 (현재 ManualUnlock은 gate 없이 항상
+     * pulse로 이어지므로 실질적으로 1:1). BLE 자동 해제(AutoUnlock) 경로는
+     * control_task를 공유하지만 이 핸들러로 진입하지 않으므로 알림 없음.
+     */
+    slack_notifier_send("🚪 문열림 요청");
+
+    /**
      * 이전: door_trigger_pulse() 직접 호출
      * 이후: Control Task 큐를 통해 간접 호출하여 SM Task 명령과 직렬화
      */
@@ -642,6 +651,46 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
     }
 
     return send_text(req, "200 OK", auto_unlock_is_enabled() ? "enabled" : "disabled");
+}
+
+/** Slack webhook URL 설정. 빈 문자열이면 알림 비활성화. 재부팅 불필요. */
+static esp_err_t slack_update_handler(httpd_req_t *req) {
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
+
+    char body[512];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return send_text(req, "400 Bad Request", "Invalid request");
+    }
+
+    char url[256] = {};
+    QueryResult qr = query_and_decode(body, "url", url);
+    if (qr == QueryResult::TooLong) {
+        return send_text(req, "400 Bad Request", "URL too long");
+    }
+    /* NotFound 또는 빈 값은 비활성화 요청으로 해석 */
+
+    esp_err_t err = slack_notifier_update_url(url[0] ? url : nullptr);
+    if (err == ESP_ERR_INVALID_ARG) {
+        return send_text(req, "400 Bad Request", "Invalid webhook URL");
+    }
+    if (err != ESP_OK) {
+        return send_text(req, "500 Internal Server Error", esp_err_to_name(err));
+    }
+    return send_text(req, "200 OK", "OK");
+}
+
+/** Slack 설정 여부만 반환 (URL 값은 노출 금지 — wifi pass와 동일 패턴). */
+static esp_err_t slack_status_handler(httpd_req_t *req) {
+    if (!check_auth(req)) {
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "application/json");
+    const char *json = slack_notifier_is_configured()
+        ? "{\"configured\":true}"
+        : "{\"configured\":false}";
+    return httpd_resp_sendstr(req, json);
 }
 
 /**
@@ -962,13 +1011,15 @@ httpd_handle_t start_webserver(WifiMode mode) {
             {"/api/reboot",                HTTP_POST, reboot_handler,              false},
             {"/api/auto-unlock/toggle",    HTTP_POST, auto_unlock_toggle_handler,  false},
             {"/api/auto-unlock/status",    HTTP_GET,  auto_unlock_status_handler,  false},
+            {"/api/slack/update",          HTTP_POST, slack_update_handler,        false},
+            {"/api/slack/status",          HTTP_GET,  slack_status_handler,        false},
             {"/api/devices",               HTTP_GET,  devices_handler,             false},
             {"/api/devices/config",        HTTP_POST, devices_config_handler,      false},
             {"/api/devices/delete",        HTTP_POST, devices_delete_handler,      false},
             {"/api/coredump",              HTTP_GET,  coredump_handler,            false},
             {"/ws",                        HTTP_GET,  ws_handler,                  true},
         };
-        ok = register_routes(server, sta_routes, 18);
+        ok = register_routes(server, sta_routes, 20);
         if (ok) {
             /* STA 모드에서만 로그 스트리밍 활성화 */
             s_server = server;
