@@ -17,9 +17,14 @@ done
 usage() {
     echo "Usage: $0 <target> <firmware.bin> <user> <pass> [-v] [-n]"
     echo ""
-    echo "  target    MAC address (c0:5d:89:df:1f:f0)"
-    echo "            or host:port (office.cartanova.ai:20080)"
-    echo "            or IP address (192.168.1.42)"
+    echo "  target    MAC address            (c0:5d:89:df:1f:f0)         — 로컬 LAN, http"
+    echo "            IP                     (192.168.1.42)              — 로컬 LAN, http"
+    echo "            host[:port]            (office.cartanova.ai:20080) — http (scheme 미지정)"
+    echo "            URL with scheme        (https://doorman.example/)  — 그대로 사용"
+    echo ""
+    echo "            scheme 미지정 + 공인 도메인인 경우 http://로 접속합니다."
+    echo "            TLS 프록시 뒤의 기기는 반드시 https:// prefix를 명시하세요."
+    echo ""
     echo "  firmware  Path to .bin file"
     echo "  user      HTTP Basic Auth username"
     echo "  pass      HTTP Basic Auth password"
@@ -39,12 +44,20 @@ PASS="${ARGS[3]}"
 
 [ -f "$FW" ] || { echo "Error: $FW not found"; exit 1; }
 
-# ── Target 판별: MAC vs host(:port) ──
+# ── Target 판별: scheme / MAC / host ──
 
 is_mac() { [[ "$1" =~ ^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$ ]]; }
+has_scheme() { [[ "$1" =~ ^https?:// ]]; }
+# 숫자로 시작하는 IPv4(옵션 포트 포함)는 로컬 LAN으로 간주하고 http로 간주.
+# 점이 포함된 비-IP는 FQDN → reverse proxy 뒤라 가정하고 https 기본.
+is_ipv4() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$ ]]; }
 
-if is_mac "$TARGET"; then
-    # MAC → ARP → IP
+if has_scheme "$TARGET"; then
+    # 사용자가 scheme을 명시한 경우 그대로 사용 (http:// 또는 https://)
+    BASE_URL="${TARGET%/}"
+    LABEL="$TARGET"
+elif is_mac "$TARGET"; then
+    # MAC → ARP → IP (로컬 LAN)
     MAC=$(echo "$TARGET" | tr '[:upper:]' '[:lower:]' | tr '-' ':')
 
     log "Detecting Wi-Fi interface..."
@@ -70,19 +83,27 @@ if is_mac "$TARGET"; then
         exit 1
     fi
 
-    HOST="$IP"
+    BASE_URL="http://$IP"
     LABEL="$IP ($MAC)"
+elif is_ipv4 "$TARGET"; then
+    # 로컬 LAN IP — plain HTTP
+    BASE_URL="http://$TARGET"
+    LABEL="$TARGET"
 else
-    # host:port 또는 host 그대로 사용
-    HOST="$TARGET"
+    # FQDN으로 간주 — reverse proxy(Caddy/nginx) TLS 종단 가정하여 https 기본
+    # http로 하고 싶으면 "http://<host>" 형태로 명시적 prefix 필요
+    BASE_URL="https://$TARGET"
     LABEL="$TARGET"
 fi
+
+URL="$BASE_URL/api/firmware/upload"
 
 # ── OTA 업로드 ──
 
 SIZE=$(wc -c < "$FW" | tr -d ' ')
 echo "Device : $LABEL"
 echo "Firmware: $(basename "$FW") ($SIZE bytes)"
+echo "Endpoint: $URL"
 echo ""
 
 if $DRY_RUN; then
@@ -90,15 +111,24 @@ if $DRY_RUN; then
     exit 0
 fi
 
-log "POST http://$HOST/api/firmware/upload"
+log "POST $URL"
 
+# -L: 3xx redirect 자동 follow (Caddy 등 리버스 프록시의 http→https 308 대비)
+# --post301/302/303: redirect 시 POST body 재전송 (기본은 GET으로 전환됨)
+# --location-trusted: redirect 후에도 Basic Auth creds 유지 (same-host 가정).
+#   주의: 의도치 않은 외부 호스트로 redirect되면 credential 유출. FQDN이
+#   자기 도메인인 경우에만 안전.
+# --max-time 300: 원격 HTTPS + TLS handshake + flash write 포함 여유
+# --fail-with-body: HTTP 4xx/5xx 응답 시 exit code 비영으로 (false positive 방지)
 curl -u "$USER:$PASS" \
      -X POST \
      -H "Content-Type: application/octet-stream" \
      --data-binary "@$FW" \
      --progress-bar \
-     --max-time 120 \
-     "http://$HOST/api/firmware/upload" \
+     --max-time 300 \
+     -L --location-trusted --post301 --post302 --post303 \
+     --fail-with-body \
+     "$URL" \
     | cat
 
 echo ""
