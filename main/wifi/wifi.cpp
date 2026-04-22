@@ -1,5 +1,4 @@
 #include "wifi/wifi.h"
-#include "nvs_config.h"
 
 #include <cstring>
 
@@ -12,8 +11,48 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <mdns.h>
+#include <nvs.h>
 
 static const char *TAG = "wifi";
+
+/**
+ * NVS에 저장된 WiFi 크레덴셜.
+ * 구 main/nvs_config.{h,cpp}에서 이주. 외부 노출 불필요한 내부 DTO.
+ */
+namespace {
+struct WifiCredentials {
+    char ssid[33];
+    char password[65];
+};
+
+bool load_credentials_from_nvs(WifiCredentials &out) {
+    nvs_handle_t handle;
+    if (nvs_open("net", NVS_READONLY, &handle) != ESP_OK) {
+        return false;
+    }
+
+    std::memset(&out, 0, sizeof(out));
+    size_t ssid_len = sizeof(out.ssid);
+    size_t pass_len = sizeof(out.password);
+
+    bool ok = nvs_get_str(handle, "ssid", out.ssid, &ssid_len) == ESP_OK &&
+              nvs_get_str(handle, "pass", out.password, &pass_len) == ESP_OK &&
+              ssid_len > 1;  // at least 1 char + null
+
+    nvs_close(handle);
+    return ok;
+}
+}  // namespace
+
+void wifi_save_credentials(const char *ssid, const char *password) {
+    nvs_handle_t handle;
+    ESP_ERROR_CHECK(nvs_open("net", NVS_READWRITE, &handle));
+    ESP_ERROR_CHECK(nvs_set_str(handle, "ssid", ssid));
+    ESP_ERROR_CHECK(nvs_set_str(handle, "pass", password));
+    ESP_ERROR_CHECK(nvs_commit(handle));
+    nvs_close(handle);
+    ESP_LOGI(TAG, "WiFi credentials saved (SSID: %s)", ssid);
+}
 
 static const char *kApSsid = "Doorman-Setup";
 static const char *kApPassword = "12345678";
@@ -107,7 +146,7 @@ static void init_common() {
         IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, nullptr, nullptr));
 }
 
-static bool try_sta(const WifiConfig &cred) {
+static bool try_sta(const WifiCredentials &cred) {
     s_retry_count = 0;
     s_event_group = xEventGroupCreate();
 
@@ -171,8 +210,8 @@ static void start_softap() {
 WifiMode wifi_start() {
     init_common();
 
-    WifiConfig cred = {};
-    if (nvs_load_wifi(cred)) {
+    WifiCredentials cred = {};
+    if (load_credentials_from_nvs(cred)) {
         if (try_sta(cred)) {
             return WifiMode::STA;
         }

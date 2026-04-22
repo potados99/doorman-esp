@@ -10,7 +10,7 @@ idf_component_register(
         "http/server.cpp"
         "monitor/monitor_task.cpp"
         "device/device_config.cpp"
-        "nvs_config.cpp"
+        "auth/auth.cpp"
     INCLUDE_DIRS
         "."
     REQUIRES

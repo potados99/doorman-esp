@@ -1,12 +1,13 @@
 #include "http/server.h"
+#include "auth/auth.h"
 #include "bt/manager.h"
-#include "door/auto_unlock.h"
-#include "door/control_task.h"
-#include "device/device_config.h"
-#include "door/control.h"
-#include "monitor/monitor_task.h"
-#include "nvs_config.h"
 #include "bt/sm_task.h"
+#include "device/device_config.h"
+#include "door/auto_unlock.h"
+#include "door/control.h"
+#include "door/control_task.h"
+#include "monitor/monitor_task.h"
+#include "wifi/wifi.h"
 
 #include <algorithm>
 #include <atomic>
@@ -79,7 +80,7 @@ static bool check_auth(httpd_req_t *req) {
         const char *user = reinterpret_cast<const char *>(decoded);
         const char *pass = colon + 1;
 
-        AuthConfig auth = nvs_load_auth();
+        AuthConfig auth = auth_load();
         if (std::strcmp(user, auth.username) == 0 && std::strcmp(pass, auth.password) == 0) {
             return true;
         }
@@ -305,7 +306,7 @@ static esp_err_t wifi_setup_handler(httpd_req_t *req) {
     }
     // NotFound 또는 Ok 모두 허용 (오픈 네트워크용 빈 비번).
 
-    nvs_save_wifi(ssid, pass);
+    wifi_save_credentials(ssid, pass);
     send_text(req, "200 OK", "OK");
     schedule_restart();
     return ESP_OK;
@@ -353,7 +354,7 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "Password is required");
     }
 
-    nvs_save_auth(user, pass);
+    auth_save(user, pass);
     return send_text(req, "200 OK", "OK");
 }
 
@@ -376,7 +377,7 @@ static esp_err_t wifi_update_handler(httpd_req_t *req) {
         return send_text(req, "400 Bad Request", "password too long");
     }
 
-    nvs_save_wifi(ssid, pass);
+    wifi_save_credentials(ssid, pass);
     send_text(req, "200 OK", "OK");
     schedule_restart();
     return ESP_OK;
