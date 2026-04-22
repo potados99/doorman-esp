@@ -1,4 +1,4 @@
-#include "wifi.h"
+#include "wifi/wifi.h"
 #include "nvs_config.h"
 
 #include <cstring>

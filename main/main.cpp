@@ -1,12 +1,12 @@
-#include "auto_unlock.h"
-#include "bt_manager.h"
-#include "control_task.h"
-#include "door_control.h"
-#include "http_server.h"
+#include "door/auto_unlock.h"
+#include "bt/manager.h"
+#include "door/control_task.h"
+#include "door/control.h"
+#include "http/server.h"
 #include "device/device_config.h"
-#include "monitor_task.h"
-#include "sm_task.h"
-#include "wifi.h"
+#include "monitor/monitor_task.h"
+#include "bt/sm_task.h"
+#include "wifi/wifi.h"
 
 #include <esp_log.h>
 #include <esp_ota_ops.h>

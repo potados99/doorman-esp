@@ -1,7 +1,7 @@
 #ifndef DOORMAN_ESP_HTTP_SERVER_H
 #define DOORMAN_ESP_HTTP_SERVER_H
 
-#include "wifi.h"
+#include "wifi/wifi.h"
 
 #include <esp_http_server.h>
 

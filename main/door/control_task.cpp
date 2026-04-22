@@ -1,5 +1,5 @@
-#include "control_task.h"
-#include "door_control.h"
+#include "door/control_task.h"
+#include "door/control.h"
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>

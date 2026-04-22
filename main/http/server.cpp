@@ -1,12 +1,12 @@
-#include "http_server.h"
-#include "bt_manager.h"
-#include "auto_unlock.h"
-#include "control_task.h"
+#include "http/server.h"
+#include "bt/manager.h"
+#include "door/auto_unlock.h"
+#include "door/control_task.h"
 #include "device/device_config.h"
-#include "door_control.h"
-#include "monitor_task.h"
+#include "door/control.h"
+#include "monitor/monitor_task.h"
 #include "nvs_config.h"
-#include "sm_task.h"
+#include "bt/sm_task.h"
 
 #include <algorithm>
 #include <atomic>

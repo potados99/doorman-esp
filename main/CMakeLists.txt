@@ -1,19 +1,18 @@
 idf_component_register(
     SRCS
         "main.cpp"
-        "wifi.cpp"
-        "http_server.cpp"
-        "nvs_config.cpp"
-        "door_control.cpp"
-        "bt_manager.cpp"
-        "control_task.cpp"
-        "sm_task.cpp"
-        "auto_unlock.cpp"
+        "door/control.cpp"
+        "door/control_task.cpp"
+        "door/auto_unlock.cpp"
+        "bt/manager.cpp"
+        "bt/sm_task.cpp"
+        "wifi/wifi.cpp"
+        "http/server.cpp"
+        "monitor/monitor_task.cpp"
         "device/device_config.cpp"
-        "monitor_task.cpp"
+        "nvs_config.cpp"
     INCLUDE_DIRS
         "."
-        "device"
     REQUIRES
         app_update
         esp_driver_gpio

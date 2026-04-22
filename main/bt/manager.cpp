@@ -1,5 +1,5 @@
-#include "bt_manager.h"
-#include "sm_task.h"
+#include "bt/manager.h"
+#include "bt/sm_task.h"
 
 #include <array>
 #include <atomic>

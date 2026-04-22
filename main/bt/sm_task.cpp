@@ -1,7 +1,7 @@
-#include "sm_task.h"
-#include "bt_manager.h"
-#include "auto_unlock.h"
-#include "control_task.h"
+#include "bt/sm_task.h"
+#include "bt/manager.h"
+#include "door/auto_unlock.h"
+#include "door/control_task.h"
 #include "device/device_config.h"
 
 #include <cstring>
