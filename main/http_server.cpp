@@ -1,6 +1,6 @@
 #include "http_server.h"
 #include "bt_manager.h"
-#include "config_service.h"
+#include "auto_unlock.h"
 #include "control_task.h"
 #include "device_config_service.h"
 #include "door_control.h"
@@ -626,12 +626,11 @@ static esp_err_t auto_unlock_toggle_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    AppConfig cfg = app_config_get();
-    cfg.auto_unlock_enabled = !cfg.auto_unlock_enabled;
-    app_config_set(cfg);
+    bool new_state = !auto_unlock_is_enabled();
+    auto_unlock_set(new_state);
 
-    const char *state = cfg.auto_unlock_enabled ? "enabled" : "disabled";
-    /* config_service가 NVS 저장 시 로그를 찍으므로 여기서는 생략 */
+    const char *state = new_state ? "enabled" : "disabled";
+    /* auto_unlock 모듈이 NVS 저장 시 로그를 찍으므로 여기서는 생략 */
     return send_text(req, "200 OK", state);
 }
 
@@ -641,8 +640,7 @@ static esp_err_t auto_unlock_status_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    AppConfig cfg = app_config_get();
-    return send_text(req, "200 OK", cfg.auto_unlock_enabled ? "enabled" : "disabled");
+    return send_text(req, "200 OK", auto_unlock_is_enabled() ? "enabled" : "disabled");
 }
 
 /**
@@ -670,10 +668,9 @@ static esp_err_t devices_handler(httpd_req_t *req) {
 
     httpd_resp_set_type(req, "application/json");
 
-    AppConfig global = app_config_get();
     char buf[256];
     snprintf(buf, sizeof(buf), "{\"auto_unlock\":%s,\"devices\":[",
-             global.auto_unlock_enabled ? "true" : "false");
+             auto_unlock_is_enabled() ? "true" : "false");
     httpd_resp_sendstr_chunk(req, buf);
 
     for (int i = 0; i < bond_count; i++) {

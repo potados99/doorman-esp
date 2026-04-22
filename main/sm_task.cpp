@@ -1,6 +1,6 @@
 #include "sm_task.h"
 #include "bt_manager.h"
-#include "config_service.h"
+#include "auto_unlock.h"
 #include "control_task.h"
 #include "device_config_service.h"
 
@@ -170,7 +170,6 @@ static void sm_task(void *) {
          * 3. 페어링 중: 새 기기 bond 중에 문 열리면 안 됩니다
          */
         if (action == Action::Unlock) {
-            AppConfig current_cfg = app_config_get();
             // grace는 real time 기준(부팅 직후 물리 시간). virtual time은 페어링
             // 동안 멈추므로 grace 체크에 쓰면 부팅 직후 페어링을 열면 grace가
             // 영원히 끝나지 않는 엣지 케이스가 생깁니다.
@@ -179,7 +178,7 @@ static void sm_task(void *) {
             if (in_grace) {
                 ESP_LOGI(TAG, "Unlock suppressed (grace %lums remaining)",
                          (unsigned long)(kStartupGraceMs - (real_now_ms - start_ms)));
-            } else if (!current_cfg.auto_unlock_enabled) {
+            } else if (!auto_unlock_is_enabled()) {
                 ESP_LOGI(TAG, "Unlock suppressed (auto_unlock OFF)");
             } else if (bt_is_pairing()) {
                 ESP_LOGI(TAG, "Unlock suppressed (pairing mode)");

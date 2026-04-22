@@ -1,5 +1,5 @@
+#include "auto_unlock.h"
 #include "bt_manager.h"
-#include "config_service.h"
 #include "control_task.h"
 #include "door_control.h"
 #include "http_server.h"
@@ -105,8 +105,8 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "Starting Doorman...%s", s_safe_mode ? " [SAFE MODE]" : "");
 
-    // AppConfig 서비스 초기화 (NVS에서 설정 로드)
-    config_service_init();
+    // auto_unlock 토글 모듈 초기화 (NVS에서 값 로드 + mutex 생성)
+    auto_unlock_init();
 
     // per-device config 서비스 초기화 (NVS에서 설정 로드 + mutex 생성)
     device_config_service_init();

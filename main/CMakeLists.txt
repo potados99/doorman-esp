@@ -8,7 +8,7 @@ idf_component_register(
         "bt_manager.cpp"
         "control_task.cpp"
         "sm_task.cpp"
-        "config_service.cpp"
+        "auto_unlock.cpp"
         "device_config_service.cpp"
         "monitor_task.cpp"
     INCLUDE_DIRS
