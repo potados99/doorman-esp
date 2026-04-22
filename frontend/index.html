@@ -412,9 +412,9 @@
 
         <div class="card">
             <div class="card-label">Slack Webhook</div>
-            <label>URL <span style="color:#9ca3af;font-weight:400">(비우면 알림 해제)</span></label>
-            <input id="slackUrl" type="url" maxlength="256" autocomplete="off"
-                   placeholder="https://hooks.slack.com/services/...">
+            <label>URL</label>
+            <input id="slackUrl" type="text" maxlength="256" autocomplete="off">
+            <div class="hint" style="margin-top:6px;">URL을 비우고 저장하면 알림이 꺼집니다.</div>
             <button class="btn btn-blue" onclick="updateSlack()">저장</button>
             <div id="slackStatus" class="status"></div>
         </div>
