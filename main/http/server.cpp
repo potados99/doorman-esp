@@ -22,8 +22,10 @@
 #include <esp_ota_ops.h>
 #include <esp_random.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/ringbuf.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <mbedtls/base64.h>
 
@@ -51,6 +53,176 @@ static void delayed_restart(void *) {
 
 static void schedule_restart() {
     xTaskCreate(delayed_restart, "restart", 2048, nullptr, 5, nullptr);
+}
+
+// ── Audit log (sousveillance) ──
+//
+// 감시·관리 행위(🔍)와 인증 실패(⚠️)를 Slack으로 기록합니다. 철학: 서비스
+// 이용(문열기)은 기록 안 하고, 들여다보려는 사람이 자신의 접근을 자동으로
+// 남긴다. 상세는 docs/plans/2026-04-23-feat-audit-log-sousveillance-plan.md.
+//
+// IP/UA가 본질적 식별 정보라 Slack 메시지에 포함. username은 오타 노출
+// 방지로 절대 포함 안 함. 이벤트 시각은 Slack 자체 타임스탬프에 의존
+// (SNTP 미사용이라 epoch가 uptime 기반 → 본문에 박으면 1970-01-01 렌더).
+
+/**
+ * 프록시 뒤에서 클라이언트 IP를 추출합니다.
+ *
+ * 1순위 X-Real-IP: Caddy가 trusted proxy 모드에서 항상 덮어쓰므로 외부
+ * HTTPS 경로에선 스푸핑 면역. 2순위 XFF 마지막 엔트리: append 체인의 첫
+ * 엔트리는 공격자 조작 가능, 마지막은 Caddy가 관찰한 실제 remote에 가까움.
+ * socket peer 조회는 Caddy loopback으로 고정되어 무가치라 생략.
+ */
+static void get_client_ip(httpd_req_t *req, char *out, size_t out_size) {
+    if (out_size == 0) return;
+    out[0] = '\0';
+
+    if (httpd_req_get_hdr_value_str(req, "X-Real-IP", out, out_size) == ESP_OK
+        && out[0] != '\0') {
+        return;
+    }
+
+    char xff[128];
+    if (httpd_req_get_hdr_value_str(req, "X-Forwarded-For", xff, sizeof(xff)) == ESP_OK) {
+        const char *last = std::strrchr(xff, ',');
+        const char *start = last ? last + 1 : xff;
+        while (*start == ' ') start++;
+        size_t n = std::strlen(start);
+        if (n >= out_size) n = out_size - 1;
+        std::memcpy(out, start, n);
+        out[n] = '\0';
+    }
+}
+
+/**
+ * 인가된 특권 행사(🔍) 1건을 Slack으로 보냅니다. handler 본문에서 반드시
+ * check_auth 통과 **후**에 호출하세요 (인증 실패 요청에 알림이 나가면
+ * audit의 의미가 뒤집힙니다).
+ *
+ * 지역 버퍼 ~460B를 스택에 잡습니다. slack_notifier_send가 리턴하면 전부
+ * 해제되므로 후속 handler 로직(OTA multipart 루프 등)과 순차 점유만 겹침.
+ */
+static void audit_log(httpd_req_t *req, const char *label) {
+    char ip[46] = {};  // INET6 최대 — 프록시 경로라 실용상 IPv4만.
+    get_client_ip(req, ip, sizeof(ip));
+
+    char ua[160] = {};
+    httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "🔍 %s\n• IP: %s\n• UA: %s",
+             label,
+             ip[0] ? ip : "unknown",
+             ua[0] ? ua : "unknown");
+
+    slack_notifier_send(msg);
+    ESP_LOGI(TAG, "audit: %s from %s", label, ip[0] ? ip : "unknown");
+}
+
+// ── 401 rate limiter ──
+//
+// 가장 최근 실패 IP 1명 + 전역 60초 카운터 조합. 이전 설계안(8-slot LRU)은
+// 공격자가 9개 IP를 회전시키면 evict로 침묵시킬 수 있어 분산 공격에
+// 무력화됐습니다. 단일 entry로 "사람 오타 vs 공격자" 구분하고, 분산 공격은
+// 전역 카운터로 잡습니다.
+//
+// critical section은 비교·카운터 갱신만. slack_notifier_send는 mutex 해제
+// 후 호출하여 contention 길어지지 않게.
+
+static struct {
+    char     ip[46];
+    uint32_t window_start_ms;
+    uint32_t count;
+    bool     alerted;
+} s_latest_fail = {};
+
+static struct {
+    uint32_t window_start_ms;
+    uint32_t count;
+    bool     alerted;
+} s_global_fail = {};
+
+static SemaphoreHandle_t s_fail_mutex = nullptr;
+
+static constexpr uint32_t kFailWindowMs       = 10000;   // 단일 IP 창
+static constexpr uint32_t kFailGlobalWindowMs = 60000;   // 전역 창
+static constexpr uint32_t kFailThreshold      = 3;       // 같은 IP 3회
+static constexpr uint32_t kFailGlobalThresh   = 10;      // 전역 10회/분
+static constexpr uint32_t kFailCooldownMs     = 60000;   // 알림 재발송 방지
+
+static void audit_401(httpd_req_t *req) {
+    if (s_fail_mutex == nullptr) return;  // init 전 호출 가드 (safe mode 포함)
+
+    char ip[46] = {};
+    get_client_ip(req, ip, sizeof(ip));
+    if (ip[0] == '\0') std::strcpy(ip, "unknown");
+
+    char ua[160] = {};
+    httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
+
+    uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+
+    bool alert_ip = false;
+    bool alert_global = false;
+    uint32_t ip_count_snap = 0;
+    uint32_t ip_elapsed_ms = 0;
+
+    xSemaphoreTake(s_fail_mutex, portMAX_DELAY);
+
+    if (std::strcmp(s_latest_fail.ip, ip) != 0) {
+        /* 새 IP: 엔트리 덮어쓰기 (단일 slot LRU). */
+        std::strncpy(s_latest_fail.ip, ip, sizeof(s_latest_fail.ip) - 1);
+        s_latest_fail.ip[sizeof(s_latest_fail.ip) - 1] = '\0';
+        s_latest_fail.window_start_ms = now_ms;
+        s_latest_fail.count = 1;
+        s_latest_fail.alerted = false;
+    } else if (now_ms - s_latest_fail.window_start_ms > kFailWindowMs + kFailCooldownMs) {
+        /* 창 + 쿨다운 모두 만료 → 완전 리셋. */
+        s_latest_fail.window_start_ms = now_ms;
+        s_latest_fail.count = 1;
+        s_latest_fail.alerted = false;
+    } else {
+        s_latest_fail.count++;
+    }
+
+    if (s_latest_fail.count == kFailThreshold && !s_latest_fail.alerted) {
+        s_latest_fail.alerted = true;
+        alert_ip = true;
+        ip_count_snap = s_latest_fail.count;
+        ip_elapsed_ms = now_ms - s_latest_fail.window_start_ms;
+    }
+
+    if (now_ms - s_global_fail.window_start_ms > kFailGlobalWindowMs) {
+        s_global_fail.window_start_ms = now_ms;
+        s_global_fail.count = 1;
+        s_global_fail.alerted = false;
+    } else {
+        s_global_fail.count++;
+    }
+
+    if (s_global_fail.count == kFailGlobalThresh && !s_global_fail.alerted) {
+        s_global_fail.alerted = true;
+        alert_global = true;
+    }
+
+    xSemaphoreGive(s_fail_mutex);
+
+    if (alert_ip) {
+        char msg[384];
+        snprintf(msg, sizeof(msg),
+                 "⚠️ 연속 인증 실패 %u회 (최근 %u초)\n• IP: %s\n• UA: %s",
+                 static_cast<unsigned>(ip_count_snap),
+                 static_cast<unsigned>(ip_elapsed_ms / 1000),
+                 ip,
+                 ua[0] ? ua : "unknown");
+        slack_notifier_send(msg);
+        ESP_LOGW(TAG, "audit_401: repeated %u from %s",
+                 static_cast<unsigned>(ip_count_snap), ip);
+    }
+    if (alert_global) {
+        slack_notifier_send("⚠️ 전역 인증 실패 10회/분 (분산 공격 의심)");
+        ESP_LOGW(TAG, "audit_401: global burst");
+    }
 }
 
 // ── Basic Auth ──
@@ -92,6 +264,9 @@ unauthorized:
     httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Doorman\"");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "Unauthorized");
+    /* 응답 완료 **후** audit. timing side channel로 audit 경로가 외부에
+     * 관측되지 않게. slack_notifier_send는 비동기 큐잉이라 지연 없음. */
+    audit_401(req);
     return false;
 }
 
@@ -329,16 +504,11 @@ static esp_err_t door_open_handler(httpd_req_t *req) {
     }
 
     /**
-     * 프라이버시 고려 — 이전엔 IP/UA를 메시지에 포함시켜 누적되면 출입
-     * 패턴·사용 기기 핑거프린트가 쌓이는 문제가 있었습니다. single-user
-     * 시스템에서 IP/UA의 보안적 추가 가치는 크지 않고(VPN 공격자 무력화),
-     * 근태성 노출 리스크만 컸기에 간단한 한 줄로 축소합니다. 시간은 Slack
-     * 자체 타임스탬프로 충분. "(via API)"로 경로 명시하여 향후 다른
-     * 트리거(예: 물리 버튼) 추가 시 구분 여지 유지.
-     */
-    slack_notifier_send("🚪 문열림 요청 (via API)");
-
-    /**
+     * 문열기는 서비스 이용이라 알림·audit 대상 아님. 호출마다 근태성 로그를
+     * 쌓지 않기 위한 의식적 결정입니다. 관리 특권 행사만 audit_log(🔍)로
+     * 남기고, 비인가 시도는 check_auth의 audit_401(⚠️)로 별도 처리.
+     * 상세 철학은 docs/brainstorms/2026-04-23-audit-log-sousveillance-brainstorm.md.
+     *
      * 이전: door_trigger_pulse() 직접 호출
      * 이후: Control Task 큐를 통해 간접 호출하여 SM Task 명령과 직렬화
      */
@@ -350,6 +520,7 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "로그인 계정 변경");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -373,6 +544,7 @@ static esp_err_t wifi_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "WiFi 설정 변경");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -398,6 +570,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "펌웨어 업로드");
 
     esp_err_t result = ESP_FAIL;
     esp_ota_handle_t ota_handle = 0;
@@ -580,6 +753,7 @@ static esp_err_t coredump_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "크래시 덤프 다운로드");
 
     esp_core_dump_summary_t summary = {};
     esp_err_t err = esp_core_dump_get_summary(&summary);
@@ -625,6 +799,7 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "기기 재부팅");
 
     send_text(req, "200 OK", "Rebooting...");
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -660,6 +835,7 @@ static esp_err_t slack_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
+    audit_log(req, "Slack 웹훅 변경");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -857,6 +1033,7 @@ static esp_err_t ws_handler(httpd_req_t *req) {
             httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Invalid token");
             return ESP_FAIL;
         }
+        audit_log(req, "로그 스트리밍 시작");
 
         int fd = httpd_req_to_sockfd(req);
         bool added = false;
@@ -966,6 +1143,15 @@ static void init_log_streaming() {
 // ── Public API ──
 
 httpd_handle_t start_webserver(WifiMode mode) {
+    if (s_fail_mutex == nullptr) {
+        /* 우선순위 상속 mutex — httpd 단일 task 가정이라 contention 거의 0.
+         * 실패 시(내부 RAM 부족) audit_401이 nullptr 가드로 조용히 무시. */
+        s_fail_mutex = xSemaphoreCreateMutex();
+        if (s_fail_mutex == nullptr) {
+            ESP_LOGW(TAG, "audit_401 mutex alloc failed — rate limiter disabled");
+        }
+    }
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
