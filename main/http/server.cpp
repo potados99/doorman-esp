@@ -74,7 +74,9 @@ static void schedule_restart() {
  * socket peer 조회는 Caddy loopback으로 고정되어 무가치라 생략.
  */
 static void get_client_ip(httpd_req_t *req, char *out, size_t out_size) {
-    if (out_size == 0) return;
+    if (out_size == 0) {
+        return;
+    }
     out[0] = '\0';
 
     if (httpd_req_get_hdr_value_str(req, "X-Real-IP", out, out_size) == ESP_OK
@@ -86,9 +88,13 @@ static void get_client_ip(httpd_req_t *req, char *out, size_t out_size) {
     if (httpd_req_get_hdr_value_str(req, "X-Forwarded-For", xff, sizeof(xff)) == ESP_OK) {
         const char *last = std::strrchr(xff, ',');
         const char *start = last ? last + 1 : xff;
-        while (*start == ' ') start++;
+        while (*start == ' ') {
+            start++;
+        }
         size_t n = std::strlen(start);
-        if (n >= out_size) n = out_size - 1;
+        if (n >= out_size) {
+            n = out_size - 1;
+        }
         std::memcpy(out, start, n);
         out[n] = '\0';
     }
@@ -151,11 +157,15 @@ static constexpr uint32_t kFailGlobalThresh   = 10;      // 전역 10회/분
 static constexpr uint32_t kFailCooldownMs     = 60000;   // 알림 재발송 방지
 
 static void audit_401(httpd_req_t *req) {
-    if (s_fail_mutex == nullptr) return;  // init 전 호출 가드 (safe mode 포함)
+    if (s_fail_mutex == nullptr) {
+        return;  // init 전 호출 가드 (safe mode 포함)
+    }
 
     char ip[46] = {};
     get_client_ip(req, ip, sizeof(ip));
-    if (ip[0] == '\0') std::strcpy(ip, "unknown");
+    if (ip[0] == '\0') {
+        std::strcpy(ip, "unknown");
+    }
 
     char ua[160] = {};
     httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
@@ -520,7 +530,7 @@ static esp_err_t auth_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "로그인 계정 변경");
+    audit_log(req, "로그인 계정 변경 요청");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -544,7 +554,7 @@ static esp_err_t wifi_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "WiFi 설정 변경");
+    audit_log(req, "WiFi 설정 변경 요청");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -570,7 +580,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "펌웨어 업로드");
+    audit_log(req, "펌웨어 업로드 요청");
 
     esp_err_t result = ESP_FAIL;
     esp_ota_handle_t ota_handle = 0;
@@ -753,7 +763,7 @@ static esp_err_t coredump_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "크래시 덤프 다운로드");
+    audit_log(req, "크래시 덤프 다운로드 요청");
 
     esp_core_dump_summary_t summary = {};
     esp_err_t err = esp_core_dump_get_summary(&summary);
@@ -799,7 +809,7 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "기기 재부팅");
+    audit_log(req, "기기 재부팅 요청");
 
     send_text(req, "200 OK", "Rebooting...");
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -835,7 +845,7 @@ static esp_err_t slack_update_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "Slack 웹훅 변경");
+    audit_log(req, "Slack 웹훅 변경 요청");
 
     char body[512];
     if (read_body(req, body, sizeof(body)) < 0) {
@@ -1033,7 +1043,7 @@ static esp_err_t ws_handler(httpd_req_t *req) {
             httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Invalid token");
             return ESP_FAIL;
         }
-        audit_log(req, "로그 스트리밍 시작");
+        audit_log(req, "로그 스트리밍 요청");
 
         int fd = httpd_req_to_sockfd(req);
         bool added = false;
