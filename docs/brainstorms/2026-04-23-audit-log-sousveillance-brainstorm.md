@@ -11,6 +11,17 @@ status: ready-for-plan
 >   사유: 9개 IP 분산 공격 시 LRU evict 회전으로 침묵 공격 가능 (Security C1).
 > - IP 추출: XFF 우선 + getpeername() fallback → **X-Real-IP 우선 + XFF 마지막 엔트리 fallback**.
 >   사유: XFF append 체인 스푸핑, Caddy가 X-Real-IP를 trusted로 덮어씀.
+>
+> **📌 구현 후 추가 조정** (2026-04-23)
+> - 🔍 기기 재부팅 요청 audit **제거**. reboot_handler의 `vTaskDelay(500)` 안에
+>   Slack HTTPS 왕복이 못 끝나 요청 알림이 소실되기 일쑤였음.
+> - **💬 시스템 이벤트 카테고리 신설**. 부팅 시점에 `💬 부팅 완료 (reason)` 1건.
+>   reset reason(SW/PANIC/WDT/BROWNOUT 등)을 포함해 의도된 재부팅 vs 크래시
+>   복구를 Slack 타임라인에서 구분.
+> - 라벨 전반 "요청" 접미사로 정규화 ("펌웨어 업로드" → "펌웨어 업로드 요청").
+>   Alt A 구조상 handler가 400/409 반환해도 audit은 이미 발사되므로 "변경됨"이
+>   아니라 "변경 요청"이 실제 의미에 부합.
+>
 > 상세는 `docs/plans/2026-04-23-feat-audit-log-sousveillance-plan.md` Enhancement Summary 참조.
 
 # Slack 알림 → audit 로그 (sousveillance)

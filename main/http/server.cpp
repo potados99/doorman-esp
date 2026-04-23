@@ -804,12 +804,18 @@ static esp_err_t ws_token_handler(httpd_req_t *req) {
     return send_text(req, "200 OK", s_ws_token);
 }
 
-/** 기기 재부팅. */
+/**
+ * 기기 재부팅.
+ *
+ * audit 대상 아님 — 재부팅 "요청"을 기록하려 해도 vTaskDelay(500) 안에
+ * Slack HTTPS 왕복이 못 끝나 메시지가 소실되기 일쑤. 대신 부팅 직후
+ * main.cpp에서 💬 부팅 완료 (reason) 로 결과를 확실히 알림. reason이
+ * "소프트 재부팅"이면 여기서 호출된 결과, "패닉 — 크래시"면 자동 복구.
+ */
 static esp_err_t reboot_handler(httpd_req_t *req) {
     if (!check_auth(req)) {
         return ESP_OK;
     }
-    audit_log(req, "기기 재부팅 요청");
 
     send_text(req, "200 OK", "Rebooting...");
     vTaskDelay(pdMS_TO_TICKS(500));

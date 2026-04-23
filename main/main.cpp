@@ -32,6 +32,45 @@ static bool s_safe_mode = false;
 bool is_safe_mode() { return s_safe_mode; }
 
 /**
+ * esp_reset_reason_t → 한국어 문자열.
+ *
+ * 부팅 알림(💬 부팅 완료)에서만 사용합니다. 빈번한 reason(POWERON/SW/
+ * PANIC/BROWNOUT/TASK_WDT)을 명시하고 나머지는 default "알 수 없음"으로
+ * 흡수. 운영자가 Slack 타임라인을 훑을 때 의도된 재부팅인지 크래시 복구
+ * 인지 즉시 식별할 수 있는 수준이면 충분합니다.
+ */
+static const char *reset_reason_kr(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON:   return "전원 켜짐";
+        case ESP_RST_EXT:       return "외부 리셋";
+        case ESP_RST_SW:        return "소프트 재부팅";
+        case ESP_RST_PANIC:     return "패닉 — 크래시";
+        case ESP_RST_INT_WDT:   return "인터럽트 워치독";
+        case ESP_RST_TASK_WDT:  return "태스크 워치독";
+        case ESP_RST_WDT:       return "워치독";
+        case ESP_RST_DEEPSLEEP: return "딥슬립 해제";
+        case ESP_RST_BROWNOUT:  return "저전압";
+        default:                return "알 수 없음";
+    }
+}
+
+/**
+ * 부팅 완료를 Slack에 알립니다 (💬 non-audit 카테고리).
+ *
+ * 호출 시점 전제: wifi_start() + slack_notifier_init() 완료 후.
+ * - SoftAP 모드 / webhook URL 미설정 / safe mode에서 notifier 미초기화 →
+ *   notifier_send가 nullptr 가드로 조용히 drop되므로 별도 분기 불필요.
+ * - reason이 "소프트 재부팅"이면 관리자의 /api/reboot 또는 WiFi 저장
+ *   이후 재부팅, 그 외 reason이면 예기치 않은 복구. Slack에서 한눈에 구분.
+ */
+static void announce_boot() {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "💬 부팅 완료 (%s)",
+             reset_reason_kr(esp_reset_reason()));
+    slack_notifier_send(msg);
+}
+
+/**
  * NVS에서 연속 panic 카운터를 읽고 갱신합니다.
  *
  * - 직전 리셋이 panic이면 카운터 +1
@@ -125,6 +164,10 @@ extern "C" void app_main(void) {
     // 가능합니다 (문열림 알림 자체는 safe mode에서 문열기 API가 살아있지
     // 않아 무관).
     slack_notifier_init();
+
+    // 💬 부팅 완료 알림. audit 카테고리 바깥(기기 자신이 주체)라 별도.
+    // SoftAP/URL 미설정/safe mode 시 notifier가 알아서 drop.
+    announce_boot();
 
     // 모드에 따라 다른 웹서버 구성 (STA에서 WS 로그 스트리밍 포함)
     start_webserver(mode);

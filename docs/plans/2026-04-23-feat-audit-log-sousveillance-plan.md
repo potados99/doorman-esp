@@ -72,22 +72,36 @@ doorman-esp의 Slack 알림 정책을 **서비스 이용 로그 → audit 로그
 
 ## Proposed Solution
 
-### 3-카테고리 이벤트 모델
+### 4-카테고리 이벤트 모델 (구현 후 조정)
 
-**🔍 인가된 특권 행사** (7개 라우트)
+주체성 축:
+- 🔍 ⚠️ = **관찰자** 시점. 외부 → 기기 접근을 기록
+- 💬 = **기기 자신** 시점. 기기 → 외부 상태 보고
+- 🔕 = 의식적 제외
+
+**🔍 인가된 특권 행사** (6개 라우트 — reboot은 💬로 이동)
 - 시스템 상태/구조에 영향을 주는 행위
-- Route 테이블에 `audit_label` 지정 → `register_routes`가 자동으로 `audit_thunk`로 감쌈
+- handler 본문의 `check_auth` 통과 직후 `audit_log(req, "<라벨>")` 한 줄 (Alt A)
 - 메시지: `🔍 <라벨>\n• IP: <x>\n• UA: <y>`
+- 라벨 접미사 "요청"으로 정규화 — Alt A 구조상 400/409 반환해도 audit은 발사되므로
 
 **⚠️ 비인가 시도** (401, 모든 라우트)
-- `check_auth`의 `unauthorized:` 분기에서 연속 감지 rate limiter 호출
-- 10초 내 3회 이상 같은 IP에서 실패 → 1회 요약 알림 + 60초 쿨다운
-- 메시지: `⚠️ 연속 인증 실패 N회 (최근 Xs 내)\n• IP: <x>\n• UA: <y>`
+- `check_auth`의 `unauthorized:` 분기에서 401 응답 **전송 후** `audit_401(req)` 호출
+- 단일 IP 10초 내 3회 → 1회 요약 + 60초 쿨다운
+- 전역 60초 내 10회 → "분산 공격 의심" 1회 요약
 
-**🔕 알림 없음** (프라이버시 영역)
+**💬 시스템 이벤트** (신설, non-audit)
+- 기기 자신이 자기 상태를 보고하는 카테고리
+- 현재: 부팅 시점 1건. `💬 부팅 완료 (<reset_reason>)`
+- reason 매핑: POWERON/SW/PANIC/INT_WDT/TASK_WDT/WDT/DEEPSLEEP/BROWNOUT/EXT/default
+- 확장 여지: SoftAP 진입, WiFi 재연결, OTA 설치 완료, auto-unlock 토글 등
+
+**🔕 알림 없음** (의식적 제외)
 - 서비스 이용: `POST /api/door/open`
+- 관리 요청자 기록 없음: `POST /api/reboot` (결과는 💬 부팅 완료로 대체)
 - 개별/일상 조작: devices/config, devices/delete, pairing/toggle, auto-unlock/toggle
 - 조회·UI 폴링: `GET /`, `/api/info`, `/api/stats`, `/api/devices`, `/api/*/status`
+- SoftAP 라우트 전체
 
 ## Technical Approach
 
@@ -393,15 +407,17 @@ unauthorized:
 
 ## Acceptance Criteria
 
-### Functional Requirements (Deepen 반영)
-- [x] 7개 handler 각각 `check_auth` 통과 직후 `audit_log(req, "<라벨>")` 호출 (ws_handler는 토큰 검증 직후)
+### Functional Requirements (Deepen + 구현 후 조정)
+- [x] 6개 handler 각각 `check_auth` 통과 직후 `audit_log(req, "<라벨>")` 호출 (ws_handler는 토큰 검증 직후). reboot은 💬로 이동
 - [x] **인증 실패 시에는 audit_log 호출되지 않음** (Security L1 검증 — 코드상 보장)
 - [x] `audit_log`가 `🔍 <label>\n• IP: <x>\n• UA: <y>` 형식으로 전송 (이벤트 시각은 Slack 자체 타임스탬프에 의존)
 - [x] `audit_401`이 단일 IP + 전역 카운터 기반 rate limiter로 작동
-- [ ] 같은 IP 3회 연속 wrong → 🔍 1건 + 60초 쿨다운 (Phase 4 실기기 실측)
-- [ ] 분산 IP 10회/분 → 🔍 "전역 폭증" 1건 (Security C1 검증, Phase 4 실측)
+- [ ] 같은 IP 3회 연속 wrong → ⚠️ 1건 + 60초 쿨다운 (Phase 4 실기기 실측)
+- [ ] 분산 IP 10회/분 → ⚠️ "전역 폭증" 1건 (Security C1 검증, Phase 4 실측)
 - [x] `check_auth`의 401 분기에서 **응답 전송 후** `audit_401(req)` 호출 (Security M1)
 - [x] `POST /api/door/open` 호출 시 Slack 알림 **전송되지 않음**
+- [x] `POST /api/reboot` 호출 시 🔍 alert 없음 (결과는 💬 부팅 완료로 대체)
+- [x] **💬 부팅 완료 (reason) 알림이 부팅 직후 1건 발사** — reset_reason_kr 매핑 10 case
 - [x] 제외 라우트 (devices/config·delete, pairing/toggle, auto-unlock/toggle, 조회성 GET들) 호출 시 알림 없음
 - [x] `Route` struct **변경 없음** (Alt A 반영)
 
