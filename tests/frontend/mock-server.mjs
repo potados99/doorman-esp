@@ -335,8 +335,12 @@ async function handleDevicesConfig(req, res) {
   if (form.alias !== undefined) cur.alias = form.alias;
   if (form.rssi !== undefined) cur.rssi_threshold = Number(form.rssi);
   if (form.rssi_threshold !== undefined) cur.rssi_threshold = Number(form.rssi_threshold);
+  /* 펌웨어 server.cpp 키 (timeout/enter_window/enter_count) + plan 키 둘 다 호환 */
+  if (form.timeout !== undefined) cur.presence_timeout_ms = Number(form.timeout);
   if (form.presence_timeout_ms !== undefined) cur.presence_timeout_ms = Number(form.presence_timeout_ms);
+  if (form.enter_window !== undefined) cur.enter_window_ms = Number(form.enter_window);
   if (form.enter_window_ms !== undefined) cur.enter_window_ms = Number(form.enter_window_ms);
+  if (form.enter_count !== undefined) cur.enter_min_count = Number(form.enter_count);
   if (form.enter_min_count !== undefined) cur.enter_min_count = Number(form.enter_min_count);
   state.devices[mac] = cur;
   sendText(req, res, 200, 'OK');

@@ -400,7 +400,7 @@
      */
 
     import { h, render } from 'preact';
-    import { useEffect } from 'preact/hooks';
+    import { useEffect, useRef } from 'preact/hooks';
     import { signal, computed, effect, useSignal, useComputed } from '@preact/signals';
     import htm from 'htm';
     import {
@@ -477,6 +477,17 @@
             pairEvents.value = [{ title, meta, time: Date.now() }, ...pairEvents.value].slice(0, 50);
         }
 
+        /**
+         * 페어링 종료 신호. WS 라우터에서 'paired' 또는 'BLE auth complete' 수신 시 set.
+         * PairModal은 이 signal로 spinner ↔ done 화면 전환.
+         */
+        const pairingDone = signal(false);
+
+        function resetPairing() {
+            pairEvents.value = [];
+            pairingDone.value = false;
+        }
+
         /** 로그 라인 버퍼 (오래된 것이 앞) */
         const MAX_LOG_LINES = 500;
         const logBuffer = signal([]);
@@ -494,6 +505,7 @@
         return {
             getDeviceSignals, deleteDevice, knownMacs,
             wsStatus, pairEvents, addPairEvent,
+            pairingDone, resetPairing,
             logBuffer, appendLog,
             sysStats,
         };
@@ -526,11 +538,13 @@
             // bt: <MAC> paired <name>
             { re: /bt: ([0-9A-F:]{17}) paired (.+)/, action: (m, _line, queryClient) => {
                 state.addPairEvent(`페어링 완료: ${m[2]}`, `MAC ${m[1]}`);
+                state.pairingDone.value = true;
                 queryClient.invalidateQueries({ queryKey: ['devices'] });
             }},
             // BLE auth complete
             { re: /BLE auth complete: success=yes addr=([0-9A-F:]{17})/, action: (m, _line, queryClient) => {
                 state.addPairEvent('BLE 인증 완료', `MAC ${m[1]}`);
+                state.pairingDone.value = true;
                 queryClient.invalidateQueries({ queryKey: ['devices'] });
             }},
             // sm: <MAC> <state>
@@ -730,9 +744,90 @@
                 }),
             });
         }
+        /**
+         * useDeviceConfigSave — 디바이스 별명/감지 파라미터 저장.
+         *
+         * mac은 필수, 나머지는 빈 문자열/undefined면 form에서 제외 (v1 동작 보존).
+         * 성공 시 ['devices'] invalidate로 카드 리프레시.
+         */
+        function useDeviceConfigSave(queryClient) {
+            return useMutation({
+                mutationFn: ({ mac, alias, rssi, timeout, win, count }) => {
+                    const parts = ['mac=' + encodeURIComponent(mac)];
+                    if (alias !== undefined) {
+                        parts.push('alias=' + encodeURIComponent(alias));
+                    }
+                    if (rssi !== '' && rssi !== undefined) {
+                        parts.push('rssi=' + encodeURIComponent(rssi));
+                    }
+                    if (timeout !== '' && timeout !== undefined) {
+                        parts.push('timeout=' + encodeURIComponent(timeout));
+                    }
+                    if (win !== '' && win !== undefined) {
+                        parts.push('enter_window=' + encodeURIComponent(win));
+                    }
+                    if (count !== '' && count !== undefined) {
+                        parts.push('enter_count=' + encodeURIComponent(count));
+                    }
+                    return fetch('/api/devices/config', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: parts.join('&'),
+                    }).then((r) => {
+                        if (!r.ok) {
+                            throw new Error(String(r.status));
+                        }
+                        return r.text();
+                    });
+                },
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
+            });
+        }
+
+        /** useDeviceDelete — 본딩 해제. 성공 시 ['devices'] invalidate. */
+        function useDeviceDelete(queryClient) {
+            return useMutation({
+                mutationFn: (mac) => fetch('/api/devices/delete', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'mac=' + encodeURIComponent(mac),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
+            });
+        }
+
+        /**
+         * usePairingToggle — 페어링 모드 토글.
+         *
+         * v1 syncPairingState의 retry 루프는 단순화 — 한 번 호출만.
+         * 실패는 mutation.isError로 표면화. 모달이 열릴 때 한 번, 닫힐 때 한 번 호출됨.
+         */
+        function usePairingToggle(queryClient) {
+            return useMutation({
+                mutationFn: () => fetch('/api/pairing/toggle', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pairingStatus'] }),
+            });
+        }
+
         return {
             useDoorOpen, useAutoUnlockToggle,
             useSlackUpdate, useAuthUpdate, useWifiUpdate, useReboot,
+            useDeviceConfigSave, useDeviceDelete, usePairingToggle,
         };
     })();
 
@@ -786,7 +881,7 @@
          * sysStats는 signal이라 .value 접근으로 자동 구독. monitor 라인 도착 시
          * 이 컴포넌트만 re-render.
          */
-        function Header({ info }) {
+        function Header({ info, onPair }) {
             const stats = state.sysStats.value;
             const statsText = stats
                 ? `RAM ${Math.round(stats.ramFree / 1024)}/${Math.round(stats.ramTotal / 1024)}KB`
@@ -797,7 +892,7 @@
                 <div class="hdr">
                     <h1>Doorman</h1>
                     <div class="hdr-actions">
-                        <button class="icon-btn" onClick=${() => console.log('TODO: pair modal (Phase 6)')}>+ 기기</button>
+                        <button class="icon-btn" onClick=${onPair}>+ 기기</button>
                         <button class="icon-btn" onClick=${() => console.log('TODO: log overlay (Phase 7)')}>📋</button>
                     </div>
                 </div>
@@ -888,7 +983,7 @@
          * 핵심: 부모 MainTab이 재렌더되지 않아도 sigs.rssi.value 접근으로 이 카드만 갱신.
          * v1 updateCardDisplay (frontend/index.html:663-698) 로직을 React-style로 옮김.
          */
-        function DeviceCard({ mac, alias }) {
+        function DeviceCard({ mac, alias, onClick }) {
             const sigs = state.getDeviceSignals(mac);
             const rssi = sigs.rssi.value;
             const stateLine = sigs.state.value;
@@ -930,15 +1025,12 @@
                 statusText = `재실${rssiStr}${agoStr}`;
             }
 
-            // openDetailModal은 Phase 6에서 구현. 현재는 placeholder.
-            const onClick = () => console.log('TODO: open detail modal (Phase 6):', mac);
-
             return html`
                 <div class="status-card"
                      id=${'card-' + macToId(mac)}
                      data-mac=${mac}
                      style=${`--status-color: ${color}; --ripple-color: ${color}`}
-                     onClick=${onClick}>
+                     onClick=${() => onClick && onClick(mac)}>
                     <div class="card-header">
                         <span class="card-alias">${alias || mac}</span>
                         <span class="card-mac">${mac}</span>
@@ -948,8 +1040,8 @@
             `;
         }
 
-        /** DeviceCards — devices 응답에서 카드 렌더 + 빈 상태. */
-        function DeviceCards({ devices }) {
+        /** DeviceCards — devices 응답에서 카드 렌더 + 빈 상태. onCardClick은 mac을 받음. */
+        function DeviceCards({ devices, onCardClick }) {
             const list = devices?.devices ?? devices ?? [];
             if (list.length === 0) {
                 return html`
@@ -960,18 +1052,18 @@
             }
             return html`
                 <div class="device-cards" id="deviceCards">
-                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} mac=${d.mac} alias=${d.alias}/>`)}
+                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} mac=${d.mac} alias=${d.alias} onClick=${onCardClick}/>`)}
                 </div>
             `;
         }
 
         /** MainTab — 메인 탭 패널 전체. */
-        function MainTab({ devices, autoUnlock }) {
+        function MainTab({ devices, autoUnlock, onCardClick }) {
             return html`
                 <div id="tab-main" class="tab-panel active">
                     <${DoorButton}/>
                     <${AutoUnlockToggle} status=${autoUnlock}/>
-                    <${DeviceCards} devices=${devices}/>
+                    <${DeviceCards} devices=${devices} onCardClick=${onCardClick}/>
                 </div>
             `;
         }
@@ -1113,6 +1205,231 @@
         }
 
         /**
+         * DetailModal — 디바이스 상세 + 설정 편집 모달.
+         *
+         * mac=null이면 dialog.close(), mac이 set되면 dialog.showModal() (useEffect로 명령형 제어).
+         * Preact는 dialog의 open prop을 인식하지 않아 ref + showModal/close가 표준입니다.
+         * 폼 값은 mac/device 변경마다 reset (편집 도중 외부 데이터로 덮어쓰지 않으려면
+         * 'mac이 바뀐 경우만'으로 더 좁힐 수도 있지만, 상세 모달은 한 번에 하나만 열림).
+         *
+         * 라이브 상태(재실/감지 중)는 device.detected가 아닌 signal 구독으로 표시 —
+         * 카드와 동일한 단일 진실 출처(WS).
+         */
+        function DetailModal({ mac, device, onClose }) {
+            const queryClient = useQueryClient();
+            const dialogRef = useRef(null);
+            const aliasSig = useSignal('');
+            const rssiSig = useSignal('');
+            const timeoutSig = useSignal('');
+            const winSig = useSignal('');
+            const countSig = useSignal('');
+            const saveM = mutations.useDeviceConfigSave(queryClient);
+            const deleteM = mutations.useDeviceDelete(queryClient);
+
+            /**
+             * mac 변경 시에만 폼 reset + mutation reset.
+             * device 객체는 ['devices'] invalidate로 매번 새 ref가 오므로 deps에 넣으면
+             * 저장 직후 invalidate → reset() 으로 isSuccess가 즉시 사라져 사용자에게
+             * 결과가 안 보이는 race가 생깁니다. 같은 mac이면 폼 값을 덮어쓰지 않습니다.
+             */
+            useEffect(() => {
+                if (!mac || !device) {
+                    return;
+                }
+                aliasSig.value = device.alias || '';
+                rssiSig.value = device.config?.rssi_threshold ?? device.rssi_threshold ?? '';
+                timeoutSig.value = device.config?.presence_timeout_ms ?? device.presence_timeout_ms ?? '';
+                winSig.value = device.config?.enter_window_ms ?? device.enter_window_ms ?? '';
+                countSig.value = device.config?.enter_min_count ?? device.enter_min_count ?? '';
+                saveM.reset();
+                deleteM.reset();
+            }, [mac]);
+
+            useEffect(() => {
+                const d = dialogRef.current;
+                if (!d) {
+                    return;
+                }
+                if (mac && !d.open) {
+                    d.showModal();
+                    document.body.style.overflow = 'hidden';
+                } else if (!mac && d.open) {
+                    d.close();
+                    document.body.style.overflow = '';
+                }
+            }, [mac]);
+
+            const sigs = mac ? state.getDeviceSignals(mac) : null;
+            const liveRssi = sigs?.rssi.value;
+            const liveStateLine = sigs?.state.value;
+            const liveLastSeen = sigs?.lastSeen.value;
+            let statusText = '미감지';
+            if (liveStateLine) {
+                if (liveStateLine.includes('present') || liveStateLine.includes('unlock')) {
+                    const rssiStr = (liveRssi != null && liveRssi !== 0) ? ` · RSSI ${liveRssi}` : '';
+                    let agoStr = '';
+                    if (liveLastSeen) {
+                        const sec = Math.floor((Date.now() - liveLastSeen) / 1000);
+                        if (sec >= 1) {
+                            agoStr = ` · ${sec}초 전`;
+                        }
+                    }
+                    statusText = `재실${rssiStr}${agoStr}`;
+                } else if (liveStateLine.includes('detecting')) {
+                    statusText = '감지 중';
+                }
+            }
+
+            function onSave() {
+                if (!mac) {
+                    return;
+                }
+                saveM.mutate({
+                    mac,
+                    alias: aliasSig.value.trim(),
+                    rssi: rssiSig.value,
+                    timeout: timeoutSig.value,
+                    win: winSig.value,
+                    count: countSig.value,
+                });
+            }
+
+            function onDelete() {
+                if (!mac) {
+                    return;
+                }
+                if (!confirm(`${mac} 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.`)) {
+                    return;
+                }
+                deleteM.mutate(mac, {
+                    onSuccess: () => {
+                        /* signal Map 즉시 비움 — query invalidate 비동기 race로 카드가
+                         * 잠깐 남는 현상 방지. 모달은 짧은 딜레이 후 닫음 (status 노출). */
+                        state.deleteDevice(mac);
+                        setTimeout(onClose, 300);
+                    },
+                });
+            }
+
+            return html`
+                <dialog ref=${dialogRef} class="modal"
+                        onClick=${(e) => { if (e.target === dialogRef.current) { onClose(); } }}
+                        onCancel=${(e) => { e.preventDefault(); onClose(); }}>
+                    <div class="modal-head">
+                        <span class="modal-title">${device?.alias || mac || '기기 상세'}</span>
+                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-status-text">${statusText}</div>
+
+                        <label>별명</label>
+                        <input type="text" maxlength="31"
+                               value=${aliasSig.value}
+                               onInput=${(e) => { aliasSig.value = e.target.value; }}/>
+
+                        <div class="section-title" style="margin-top:18px;">진입 감지</div>
+                        <div class="hint">윈도우 내 RSSI 조건을 충족하는 관측이 N회 이상이면 재실로 판정합니다.</div>
+                        <label>RSSI 임계값 (dBm)</label>
+                        <input type="number" min="-100" max="0"
+                               value=${rssiSig.value}
+                               onInput=${(e) => { rssiSig.value = e.target.value; }}/>
+                        <label>윈도우 (ms)</label>
+                        <input type="number" min="1000" max="30000" step="1000"
+                               value=${winSig.value}
+                               onInput=${(e) => { winSig.value = e.target.value; }}/>
+                        <label>최소 관측 수</label>
+                        <input type="number" min="1" max="10"
+                               value=${countSig.value}
+                               onInput=${(e) => { countSig.value = e.target.value; }}/>
+
+                        <div class="section-title" style="margin-top:18px;">퇴실 감지</div>
+                        <div class="hint">신호 없이 이 시간이 지나면 퇴실로 전환됩니다.</div>
+                        <label>타임아웃 (ms)</label>
+                        <input type="number" min="1000" max="60000" step="1000"
+                               value=${timeoutSig.value}
+                               onInput=${(e) => { timeoutSig.value = e.target.value; }}/>
+                    </div>
+                    <div class="modal-foot">
+                        <${StatusLine} mutation=${saveM} okMsg="저장됨!"/>
+                        <${StatusLine} mutation=${deleteM} okMsg="삭제됨"/>
+                        <button class="btn btn-blue" onClick=${onSave}>저장</button>
+                        <button class="btn btn-red" onClick=${onDelete}>기기 삭제</button>
+                    </div>
+                </dialog>
+            `;
+        }
+
+        /**
+         * PairModal — 페어링 모드 진입 + 결과 표시.
+         *
+         * open=true 진입 시 pairing toggle을 한 번 호출 (펌웨어가 광고 활성화).
+         * close 시 다시 한 번 호출해서 토글 off. v1 syncPairingState의 retry/원하는
+         * 상태 추적 루프는 단순화 — 실패는 mutation.isError로 표면화하고 사용자가
+         * 다시 열도록 유도.
+         *
+         * pairingDone signal: WS에서 'paired' 또는 'BLE auth complete' 도착 시 true.
+         * UI는 spinner ↔ done 화면 전환만 담당.
+         */
+        function PairModal({ open, onClose }) {
+            const queryClient = useQueryClient();
+            const dialogRef = useRef(null);
+            const toggleM = mutations.usePairingToggle(queryClient);
+            const done = state.pairingDone.value;
+            const events = state.pairEvents.value;
+
+            useEffect(() => {
+                const d = dialogRef.current;
+                if (!d) {
+                    return;
+                }
+                if (open && !d.open) {
+                    state.resetPairing();
+                    d.showModal();
+                    document.body.style.overflow = 'hidden';
+                    toggleM.mutate();  // pairing on
+                } else if (!open && d.open) {
+                    d.close();
+                    document.body.style.overflow = '';
+                    toggleM.mutate();  // pairing off
+                    state.resetPairing();
+                }
+            }, [open]);
+
+            return html`
+                <dialog ref=${dialogRef} class="modal"
+                        onClick=${(e) => { if (e.target === dialogRef.current) { onClose(); } }}
+                        onCancel=${(e) => { e.preventDefault(); onClose(); }}>
+                    <div class="modal-head">
+                        <span class="modal-title">기기 페어링</span>
+                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        ${!done && html`
+                            <div id="pairInfo" class="hint">
+                                블루투스 설정에서 "Doorman"을 찾아 연결하세요.
+                            </div>
+                            <div class="pair-spinner">기기 연결 대기 중</div>
+                        `}
+                        ${done && html`
+                            <div>
+                                <span style="color:#16a34a; font-weight:600;">연결됨!</span>
+                                <div class="pair-events">
+                                    ${events.map((ev, i) => html`
+                                        <div class="pair-event" key=${i}>
+                                            <div class="pair-event-title">${ev.title}</div>
+                                            <div class="pair-event-meta">${ev.meta}</div>
+                                        </div>
+                                    `)}
+                                    ${events.length === 0 && html`<div class="pair-empty">이벤트 없음</div>`}
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </dialog>
+            `;
+        }
+
+        /**
          * App — 쿼리 의존성 체인을 관리하는 루트.
          *
          * info 도착 → enabled 토글 → 나머지 4개 쿼리 fire.
@@ -1150,6 +1467,8 @@
             }, [devices.data]);
 
             const currentTab = useSignal('main');
+            const detailMac = useSignal(null);
+            const pairOpen = useSignal(false);
 
             if (info.isPending) {
                 return html`<div style="padding:2rem">로딩…</div>`;
@@ -1158,13 +1477,23 @@
                 return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
             }
 
+            const devList = devices.data?.devices ?? devices.data ?? [];
+            const detailDevice = detailMac.value
+                ? devList.find((d) => d.mac === detailMac.value)
+                : null;
+
             return html`
-                <${Header} info=${info.data}/>
+                <${Header} info=${info.data} onPair=${() => { pairOpen.value = true; }}/>
                 <${SafeBanner} safeMode=${info.data.safe_mode}/>
                 <${Tabs} current=${currentTab}/>
                 ${currentTab.value === 'main'
-                    ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}/>`
+                    ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}
+                                       onCardClick=${(mac) => { detailMac.value = mac; }}/>`
                     : html`<${ManageTab}/>`}
+                <${DetailModal} mac=${detailMac.value} device=${detailDevice}
+                                onClose=${() => { detailMac.value = null; }}/>
+                <${PairModal} open=${pairOpen.value}
+                              onClose=${() => { pairOpen.value = false; }}/>
             `;
         }
         return { App };
