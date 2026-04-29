@@ -31,27 +31,10 @@
 
 static const char *TAG = "httpd";
 
-// ── Embedded HTML / Vendor ESM ──
+// ── Embedded HTML ──
 
 extern const char index_html_start[] asm("_binary_index_html_start");
 extern const char setup_html_start[] asm("_binary_setup_html_start");
-
-/* Vendor ESM 모듈 — frontend가 importmap의 /vendor/ 경로로 fetch.
- * 인증 없이 public 서빙 + 1년 immutable cache (한 번 받으면 재요청 0). */
-extern const char preact_mjs_start[]              asm("_binary_preact_mjs_start");
-extern const char preact_mjs_end[]                asm("_binary_preact_mjs_end");
-extern const char preact_hooks_mjs_start[]        asm("_binary_preact_hooks_mjs_start");
-extern const char preact_hooks_mjs_end[]          asm("_binary_preact_hooks_mjs_end");
-extern const char preact_jsx_runtime_mjs_start[]  asm("_binary_preact_jsx_runtime_mjs_start");
-extern const char preact_jsx_runtime_mjs_end[]    asm("_binary_preact_jsx_runtime_mjs_end");
-extern const char preact_signals_mjs_start[]      asm("_binary_preact_signals_mjs_start");
-extern const char preact_signals_mjs_end[]        asm("_binary_preact_signals_mjs_end");
-extern const char preact_signals_core_mjs_start[] asm("_binary_preact_signals_core_mjs_start");
-extern const char preact_signals_core_mjs_end[]   asm("_binary_preact_signals_core_mjs_end");
-extern const char htm_mjs_start[]                 asm("_binary_htm_mjs_start");
-extern const char htm_mjs_end[]                   asm("_binary_htm_mjs_end");
-extern const char preact_query_mjs_start[]        asm("_binary_preact_query_mjs_start");
-extern const char preact_query_mjs_end[]          asm("_binary_preact_query_mjs_end");
 
 // ── Helpers ──
 
@@ -520,32 +503,6 @@ static esp_err_t wifi_setup_handler(httpd_req_t *req) {
     schedule_restart();
     return ESP_OK;
 }
-
-// ── Vendor static (public, immutable cache) ──
-//
-// frontend/vendor/*.mjs를 인증 없이 서빙. 1년 immutable 캐시 → 한 번 받으면
-// 재요청 0이라 매 페이지 진입 시 fetch 없음 (브라우저 캐시 → ESP httpd 미진입).
-// httpd_resp_send는 내부 chunked로 ROM(flash)에서 직접 lwip로 stream — RAM
-// 추가 사용 거의 0.
-
-static esp_err_t serve_static_js(httpd_req_t *req, const char *start, const char *end) {
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000, immutable");
-    return httpd_resp_send(req, start, end - start);
-}
-
-#define DEFINE_VENDOR_HANDLER(fn, sym)                                          \
-    static esp_err_t fn(httpd_req_t *req) {                                     \
-        return serve_static_js(req, sym##_start, sym##_end);                    \
-    }
-
-DEFINE_VENDOR_HANDLER(vendor_preact,              preact_mjs)
-DEFINE_VENDOR_HANDLER(vendor_preact_hooks,        preact_hooks_mjs)
-DEFINE_VENDOR_HANDLER(vendor_preact_jsx_runtime,  preact_jsx_runtime_mjs)
-DEFINE_VENDOR_HANDLER(vendor_preact_signals,      preact_signals_mjs)
-DEFINE_VENDOR_HANDLER(vendor_preact_signals_core, preact_signals_core_mjs)
-DEFINE_VENDOR_HANDLER(vendor_htm,                 htm_mjs)
-DEFINE_VENDOR_HANDLER(vendor_preact_query,        preact_query_mjs)
 
 // ── STA Handlers ──
 
@@ -1221,11 +1178,7 @@ httpd_handle_t start_webserver(WifiMode mode) {
     config.stack_size = 8192;
     config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
-    /* 19 STA + 6 vendor + 여유. */
-    config.max_uri_handlers = 28;
-    /* 첫 페이지 진입 시 5개 vendor + index.html 동시 fetch 가능. default 7은
-     * 빠듯 → 8로 1개 여유 (ws 1개 + 동시 fetch 7개까지). */
-    config.max_open_sockets = 8;
+    config.max_uri_handlers = 20;
 
     httpd_handle_t server = nullptr;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -1244,15 +1197,6 @@ httpd_handle_t start_webserver(WifiMode mode) {
                              sizeof(softap_routes) / sizeof(softap_routes[0]));
     } else {
         static const Route sta_routes[] = {
-            /* Vendor ESM — public, 1년 immutable cache. */
-            {"/vendor/preact.mjs",              HTTP_GET, vendor_preact,              false},
-            {"/vendor/preact-hooks.mjs",        HTTP_GET, vendor_preact_hooks,        false},
-            {"/vendor/preact-jsx-runtime.mjs",  HTTP_GET, vendor_preact_jsx_runtime,  false},
-            {"/vendor/preact-signals.mjs",      HTTP_GET, vendor_preact_signals,      false},
-            {"/vendor/preact-signals-core.mjs", HTTP_GET, vendor_preact_signals_core, false},
-            {"/vendor/htm.mjs",                 HTTP_GET, vendor_htm,                 false},
-            {"/vendor/preact-query.mjs",        HTTP_GET, vendor_preact_query,        false},
-
             {"/",                          HTTP_GET,  index_page_handler,          false},
             {"/api/door/open",             HTTP_POST, door_open_handler,           false},
             {"/api/firmware/upload",       HTTP_POST, ota_upload_handler,          false},
