@@ -1366,6 +1366,12 @@
         function SlackSection() {
             const url = useSignal('');
             const m = mutations.useSlackUpdate();
+            function onSave() {
+                if (m.isPending) return;
+                const v = url.value.trim();
+                if (v === '' && !confirm('URL을 비웠습니다. Slack 알림을 끄시겠습니까?')) return;
+                m.mutate(v);
+            }
             return html`
                 <div class="card">
                     <div class="card-label">Slack Webhook</div>
@@ -1374,7 +1380,7 @@
                            value=${url.value}
                            onInput=${(e) => { url.value = e.target.value; }}/>
                     <div class="hint" style="margin-top:6px;">URL을 비우고 저장하면 알림이 꺼집니다.</div>
-                    <button class="btn btn-blue" onClick=${() => m.mutate(url.value.trim())}>저장</button>
+                    <button class="btn btn-blue" onClick=${onSave} disabled=${m.isPending}>저장</button>
                     <${StatusLine} mutation=${m} okMsg="저장됨"/>
                 </div>
             `;
@@ -1396,9 +1402,8 @@
             }
 
             function onUpload() {
-                if (!fileSignal.value) {
-                    return;
-                }
+                if (!fileSignal.value || ota.isPending) return;
+                if (!confirm('펌웨어를 업데이트하시겠습니까?\n업로드 완료 후 기기가 자동 재부팅됩니다.')) return;
                 ota.mutate(fileSignal.value);
             }
 
@@ -1424,11 +1429,19 @@
             `;
         }
 
-        /** AuthSection — 사용자명/비밀번호 변경. v1 updateAuth 동작 보존. */
+        /** AuthSection — 사용자명/비밀번호 변경. 빈 폼 disabled + confirm. */
         function AuthSection() {
             const user = useSignal('');
             const pass = useSignal('');
             const m = mutations.useAuthUpdate();
+            const u = user.value.trim();
+            const p = pass.value;
+            const canSubmit = u !== '' && p !== '' && !m.isPending;
+            function onSave() {
+                if (!canSubmit) return;
+                if (!confirm('계정 정보를 변경하시겠습니까?\n변경 후 새 정보로 다시 로그인해야 합니다.')) return;
+                m.mutate({ user: u, pass: p });
+            }
             return html`
                 <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">계정</div>
@@ -1440,18 +1453,25 @@
                     <input type="password" maxlength="63"
                            value=${pass.value}
                            onInput=${(e) => { pass.value = e.target.value; }}/>
-                    <button class="btn btn-red"
-                            onClick=${() => m.mutate({ user: user.value.trim(), pass: pass.value })}>계정 변경</button>
+                    <button class="btn btn-red" onClick=${onSave} disabled=${!canSubmit}>계정 변경</button>
                     <${StatusLine} mutation=${m} okMsg="변경 완료. 탭을 닫고 새 인증으로 접속하세요."/>
                 </div>
             `;
         }
 
-        /** WifiSection — SSID/비밀번호 변경 후 재부팅. */
+        /** WifiSection — SSID/비밀번호 변경 후 재부팅. 빈 SSID disabled + confirm. */
         function WifiSection() {
             const ssid = useSignal('');
             const pass = useSignal('');
             const m = mutations.useWifiUpdate();
+            const s = ssid.value.trim();
+            const p = pass.value;
+            const canSubmit = s !== '' && !m.isPending;
+            function onSave() {
+                if (!canSubmit) return;
+                if (!confirm('WiFi 설정을 변경하시겠습니까?\n저장 후 기기가 재부팅되며, 새 네트워크에서 다시 접속해야 합니다.')) return;
+                m.mutate({ ssid: s, pass: p });
+            }
             return html`
                 <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">WiFi</div>
@@ -1463,25 +1483,24 @@
                     <input type="password" maxlength="63"
                            value=${pass.value}
                            onInput=${(e) => { pass.value = e.target.value; }}/>
-                    <button class="btn btn-red"
-                            onClick=${() => m.mutate({ ssid: ssid.value.trim(), pass: pass.value })}>저장 및 재부팅</button>
+                    <button class="btn btn-red" onClick=${onSave} disabled=${!canSubmit}>저장 및 재부팅</button>
                     <${StatusLine} mutation=${m} okMsg="저장됨! 기기 재부팅 중..."/>
                 </div>
             `;
         }
 
-        /**
-         * RebootSection — 입력 없는 단일 버튼.
-         *
-         * v1은 confirm() dialog로 가드했으나 Phase 5 산출물 명세는 단순 버튼.
-         * 성공 시 mock 서버는 5초 후 새 wsToken 발급 + ws 강제 종료 (재부팅 시뮬).
-         */
+        /** RebootSection — confirm 가드 + isPending disabled. */
         function RebootSection() {
             const m = mutations.useReboot();
+            function onReboot() {
+                if (m.isPending) return;
+                if (!confirm('기기를 재부팅하시겠습니까?\n약 10초간 접속이 끊깁니다.')) return;
+                m.mutate();
+            }
             return html`
                 <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">재부팅</div>
-                    <button class="btn btn-red" onClick=${() => m.mutate()}>기기 재부팅</button>
+                    <button class="btn btn-red" onClick=${onReboot} disabled=${m.isPending}>기기 재부팅</button>
                     <${StatusLine} mutation=${m} okMsg="재부팅 중..." runMsg="재부팅 중..."/>
                 </div>
             `;
@@ -1583,9 +1602,7 @@
             }
 
             function onSave() {
-                if (!mac) {
-                    return;
-                }
+                if (!mac || saveM.isPending || deleteM.isPending) return;
                 saveM.mutate({
                     mac,
                     alias: aliasSig.value.trim(),
@@ -1597,9 +1614,7 @@
             }
 
             function onDelete() {
-                if (!mac) {
-                    return;
-                }
+                if (!mac || saveM.isPending || deleteM.isPending) return;
                 if (!confirm(`${mac} 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.`)) {
                     return;
                 }
@@ -1654,8 +1669,10 @@
                     <div class="modal-foot">
                         <${StatusLine} mutation=${saveM} okMsg="저장됨!"/>
                         <${StatusLine} mutation=${deleteM} okMsg="삭제됨"/>
-                        <button class="btn btn-blue" onClick=${onSave}>저장</button>
-                        <button class="btn btn-red" onClick=${onDelete}>기기 삭제</button>
+                        <button class="btn btn-blue" onClick=${onSave}
+                                disabled=${saveM.isPending || deleteM.isPending}>저장</button>
+                        <button class="btn btn-red" onClick=${onDelete}
+                                disabled=${saveM.isPending || deleteM.isPending}>기기 삭제</button>
                     </div>
                 </dialog>
             `;
