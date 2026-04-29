@@ -191,13 +191,13 @@
         #topProgress {
             position: fixed; top: 0; left: 0; right: 0;
             height: 2px; z-index: 9999; pointer-events: none;
-            background: linear-gradient(90deg, transparent 0%, #2563eb 50%, transparent 100%);
-            background-size: 30% 100%; background-repeat: no-repeat;
-            animation: topProgressSlide 1s linear infinite;
+            background: linear-gradient(90deg, transparent 0%, #6366f1 30%, #38bdf8 70%, transparent 100%);
+            background-size: 40% 100%; background-repeat: no-repeat;
+            animation: topProgressSlide 1.1s ease-in-out infinite;
         }
         @keyframes topProgressSlide {
-            0%   { background-position: -30% 0; }
-            100% { background-position: 130% 0; }
+            0%   { background-position: -40% 0; }
+            100% { background-position: 140% 0; }
         }
 
         /* ── Modal (dialog) ── */
