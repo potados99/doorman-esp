@@ -68,10 +68,10 @@ static void schedule_restart() {
 /**
  * 프록시 뒤에서 클라이언트 IP를 추출합니다.
  *
- * 1순위 X-Real-IP: Caddy가 trusted proxy 모드에서 항상 덮어쓰므로 외부
- * HTTPS 경로에선 스푸핑 면역. 2순위 XFF 마지막 엔트리: append 체인의 첫
- * 엔트리는 공격자 조작 가능, 마지막은 Caddy가 관찰한 실제 remote에 가까움.
- * socket peer 조회는 Caddy loopback으로 고정되어 무가치라 생략.
+ * 1순위 X-Real-IP: 리버스 프록시가 trusted proxy 모드에서 항상 덮어쓰므로
+ * 외부 HTTPS 경로에선 스푸핑 면역. 2순위 XFF 마지막 엔트리: append 체인의
+ * 첫 엔트리는 공격자 조작 가능, 마지막은 리버스 프록시가 관찰한 실제 remote에
+ * 가까움. socket peer 조회는 리버스 프록시 loopback으로 고정되어 무가치라 생략.
  */
 static void get_client_ip(httpd_req_t *req, char *out, size_t out_size) {
     if (out_size == 0) {
@@ -170,6 +170,12 @@ static void audit_401(httpd_req_t *req) {
     char ua[160] = {};
     httpd_req_get_hdr_value_str(req, "User-Agent", ua, sizeof(ua));
 
+    /* DEBUG: 매 401마다 path/UA/IP 상태 한 줄 — 정체불명 401 추적용. 진단 끝나면 제거. */
+    ESP_LOGI(TAG, "401 path=%s ua_present=%d ip_present=%d",
+             req->uri,
+             ua[0] != '\0' ? 1 : 0,
+             ip[0] != '\0' && std::strcmp(ip, "unknown") != 0 ? 1 : 0);
+
     uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
 
     bool alert_ip = false;
@@ -226,8 +232,8 @@ static void audit_401(httpd_req_t *req) {
                  ip,
                  ua[0] ? ua : "unknown");
         slack_notifier_send(msg);
-        ESP_LOGW(TAG, "audit_401: repeated %u from %s",
-                 static_cast<unsigned>(ip_count_snap), ip);
+        ESP_LOGW(TAG, "audit_401: repeated %u from %s (path=%s)",
+                 static_cast<unsigned>(ip_count_snap), ip, req->uri);
     }
     if (alert_global) {
         slack_notifier_send("⚠️ 전역 인증 실패 10회/분 (분산 공격 의심)");
