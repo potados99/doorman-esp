@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Doorman</title>
     <style>
         *:not(dialog) { margin: 0; padding: 0; box-sizing: border-box; }
@@ -366,990 +366,1354 @@
     </style>
 </head>
 <body>
-
-<!-- ── Header ── -->
-<div class="hdr">
-    <h1>Doorman</h1>
-    <div class="hdr-actions">
-        <button class="icon-btn" onclick="openPairModal()">+ 기기</button>
-        <button class="icon-btn" onclick="openLogOverlay()">&#x1F4CB;</button>
-    </div>
-</div>
-<div class="hdr-meta">
-    <span id="buildInfo">loading...</span> · <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
-    <br><span id="sysStats" style="font-size:0.68rem;color:#c4c4c4;"></span>
-</div>
-
-<div id="safeBanner" class="safe-banner" style="display:none;">
-    세이프 모드 — 연속 crash로 BT/자동열림이 비활성화되었습니다. 펌웨어 업데이트 또는 기기 삭제 후 재부팅하세요.
-</div>
-
-<!-- ── Tabs ── -->
-<div class="tabs">
-    <button class="tab active" onclick="switchTab('main')">메인</button>
-    <button class="tab" onclick="switchTab('manage')">관리</button>
-</div>
-
-<!-- ── 메인 탭 ── -->
-<div id="tab-main" class="tab-panel active">
-    <button class="door-btn" onclick="openDoor()">문 열기</button>
-    <div id="doorStatus" class="status"></div>
-
-    <div class="auto-row">
-        <span>자동 열림</span>
-        <button id="autoToggle" class="pill off" onclick="toggleAutoUnlock()">OFF</button>
-    </div>
-
-    <div class="device-cards" id="deviceCards">
-        <!-- 기기 카드들이 여기 렌더링됨 -->
-    </div>
-</div>
-
-<!-- ── 관리 탭 ── -->
-<div id="tab-manage" class="tab-panel">
-    <div class="section">
-        <div class="section-title">설정</div>
-
-        <div class="card">
-            <div class="card-label">Slack Webhook</div>
-            <label>URL</label>
-            <input id="slackUrl" type="text" maxlength="256" autocomplete="off">
-            <div class="hint" style="margin-top:6px;">URL을 비우고 저장하면 알림이 꺼집니다.</div>
-            <button class="btn btn-blue" onclick="updateSlack()">저장</button>
-            <div id="slackStatus" class="status"></div>
-        </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title" style="color:#dc2626;">Danger Zone</div>
-
-        <div class="card" style="border-color:#fecaca;">
-            <div class="card-label">펌웨어 업데이트</div>
-            <input id="file" type="file" accept=".bin,application/octet-stream">
-            <button class="btn btn-red" onclick="uploadFirmware()">업로드 및 재부팅</button>
-            <progress id="progress" value="0" max="100"></progress>
-            <div id="otaStatus" class="status"></div>
-        </div>
-
-        <div class="card" style="border-color:#fecaca;">
-            <div class="card-label">계정</div>
-            <label>사용자명</label>
-            <input id="authUser" type="text" maxlength="31" autocomplete="off">
-            <label>비밀번호</label>
-            <input id="authPass" type="password" maxlength="63">
-            <button class="btn btn-red" onclick="updateAuth()">계정 변경</button>
-            <div id="authStatus" class="status"></div>
-        </div>
-
-        <div class="card" style="border-color:#fecaca;">
-            <div class="card-label">WiFi</div>
-            <label>SSID</label>
-            <input id="wifiSsid" type="text" maxlength="32" autocomplete="off">
-            <label>비밀번호</label>
-            <input id="wifiPass" type="password" maxlength="63">
-            <button class="btn btn-red" onclick="updateWifi()">저장 및 재부팅</button>
-            <div id="wifiStatus" class="status"></div>
-        </div>
-
-        <div class="card" style="border-color:#fecaca;">
-            <div class="card-label">재부팅</div>
-            <button class="btn btn-red" onclick="rebootDevice()">기기 재부팅</button>
-            <div id="rebootStatus" class="status"></div>
-        </div>
-    </div>
-</div>
-
-<!-- ── 기기 상세 모달 ── -->
-<dialog id="detailModal" class="modal">
-    <div class="modal-head">
-        <span class="modal-title" id="modalTitle">기기 상세</span>
-        <button class="modal-close" onclick="closeDetailModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-        <div class="modal-status-text" id="modalStatusText"></div>
-
-        <label>별명</label>
-        <input id="modalAlias" type="text" maxlength="31">
-
-        <div class="section-title" style="margin-top:18px;">진입 감지</div>
-        <div class="hint">윈도우 내 RSSI 조건을 충족하는 관측이 N회 이상이면 재실로 판정합니다.</div>
-        <label>RSSI 임계값 (dBm)</label>
-        <input id="modalRssi" type="number" min="-100" max="0">
-        <label>윈도우 (ms)</label>
-        <input id="modalWindow" type="number" min="1000" max="30000" step="1000">
-        <label>최소 관측 수</label>
-        <input id="modalCount" type="number" min="1" max="10">
-
-        <div class="section-title" style="margin-top:18px;">퇴실 감지</div>
-        <div class="hint">신호 없이 이 시간이 지나면 퇴실로 전환됩니다.</div>
-        <label>타임아웃 (ms)</label>
-        <input id="modalTimeout" type="number" min="1000" max="60000" step="1000">
-    </div>
-    <div class="modal-foot">
-        <div id="modalStatus" class="status"></div>
-        <button class="btn btn-blue" onclick="saveDeviceConfig()">저장</button>
-        <button class="btn btn-red" onclick="deleteCurrentDevice()">기기 삭제</button>
-    </div>
-</dialog>
-
-<!-- ── 페어링 모달 ── -->
-<dialog id="pairModal" class="modal">
-    <div class="modal-head">
-        <span class="modal-title">기기 페어링</span>
-        <button class="modal-close" onclick="closePairModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-        <div id="pairInfo" class="hint">
-            블루투스 설정에서 "Doorman"을 찾아 연결하세요.
-        </div>
-        <div id="pairSpinner" class="pair-spinner" style="display:none;">기기 연결 대기 중</div>
-        <div id="pairDone" style="display:none;">
-            <span style="color:#16a34a; font-weight:600;">연결됨!</span>
-            <div id="pairEvents" class="pair-events"></div>
-        </div>
-    </div>
-</dialog>
-
-<!-- ── 로그 오버레이 ── -->
-<div id="logOverlay">
-    <div class="log-overlay-head">
-        <span class="ws-label">
-            <span id="wsDot" class="ws-dot dot-wait"></span>
-            <span id="wsLabel">연결 중...</span>
-        </span>
-        <button class="log-close-btn" onclick="closeLogOverlay()">닫기</button>
-    </div>
-    <div id="tagFilters"></div>
-    <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)" oninput="renderFilteredLogs()">
-    <div id="logArea"></div>
-</div>
-
-<script>
-/* ──────────────────────────────────────────
-   유틸리티
-   ────────────────────────────────────────── */
-function show(id, msg, cls) {
-    var el = document.getElementById(id);
-    el.textContent = msg;
-    el.className = 'status ' + cls;
-    el.style.display = 'block';
+<div id="app"></div>
+<!--
+  Import map: esm.sh가 의존성마다 다른 preact 인스턴스를 가져올 수 있어
+  (signals 자동 트래킹은 동일 preact options 객체에 hook을 등록), 모든
+  preact import를 단일 URL로 핀해 인스턴스를 통일합니다. signals와 query
+  가 같은 hook 트리에 들어가야 자동 구독이 작동.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "preact": "https://esm.sh/preact@10.29.1",
+    "preact/": "https://esm.sh/preact@10.29.1/",
+    "@preact/signals": "https://esm.sh/@preact/signals@2?deps=preact@10.29.1",
+    "@preact/signals-core": "https://esm.sh/@preact/signals-core@1?deps=preact@10.29.1",
+    "htm": "https://esm.sh/htm@3",
+    "@tanstack/preact-query": "https://esm.sh/@tanstack/preact-query@5?deps=preact@10.29.1"
+  }
 }
+</script>
+<script type="module">
+    /**
+     * doorman-esp 프론트엔드 v2 — Phase 2 스캐폴드.
+     *
+     * preact_practice.html과 같은 IIFE 모듈 패턴을 따릅니다.
+     * - 모듈 정의 순서가 의존 순서: api → queries → components → render
+     * - 외부 노출이 필요한 것만 return
+     *
+     * Phase 2의 목표: QueryClient 셋업 + /api/info 단일 query로
+     * 브라우저 Basic Auth dialog 통과를 검증.
+     * retry: 0은 401 init race를 차단합니다 — 인증 실패 시 즉시 에러로
+     * 표면화시켜 브라우저 dialog가 처리하도록 합니다.
+     */
 
-function post(url, body, statusId, okMsg, reboot) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
-    if (body !== null) xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        if (xhr.status === 200) show(statusId, okMsg, 'ok');
-        else show(statusId, 'Error: ' + xhr.responseText, 'err');
-    };
-    xhr.onerror = function() {
-        show(statusId, reboot ? okMsg : '연결 끊김', reboot ? 'ok' : 'err');
-    };
-    xhr.send(body);
-}
+    import { h, render } from 'preact';
+    import { useEffect, useRef } from 'preact/hooks';
+    import { signal, computed, effect, useSignal, useComputed } from '@preact/signals';
+    import htm from 'htm';
+    import {
+        QueryClient,
+        QueryClientProvider,
+        useQuery,
+        useMutation,
+        useQueryClient,
+    } from '@tanstack/preact-query';
 
-function macToId(mac) {
-    return mac.replace(/:/g, '');
-}
+    const html = htm.bind(h);
+    const queryClient = new QueryClient({
+        defaultOptions: {
+            queries: {
+                retry: 0,           // 401은 즉시 실패 (브라우저 dialog가 처리)
+                refetchOnWindowFocus: false,
+            },
+        },
+    });
 
-function relativeTime(ms) {
-    var sec = Math.floor(ms / 1000);
-    if (sec < 60) return sec + '초 전';
-    var min = Math.floor(sec / 60);
-    if (min < 60) return min + '분 전';
-    return Math.floor(min / 60) + '시간 전';
-}
-
-/* ──────────────────────────────────────────
-   탭 전환
-   ────────────────────────────────────────── */
-function switchTab(name) {
-    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    document.getElementById('tab-' + name).classList.add('active');
-    var tabNames = ['main', 'manage'];
-    var tabs = document.querySelectorAll('.tab');
-    for (var i = 0; i < tabs.length; i++) {
-        if (tabNames[i] === name) tabs[i].classList.add('active');
-    }
-}
-
-/* ──────────────────────────────────────────
-   문 열기
-   ────────────────────────────────────────── */
-function openDoor() {
-    show('doorStatus', '전송 중...', 'run');
-    post('/api/door/open', null, 'doorStatus', '문이 열렸습니다', false);
-}
-
-/* ──────────────────────────────────────────
-   자동 열림 토글
-   ────────────────────────────────────────── */
-function toggleAutoUnlock() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/auto-unlock/toggle');
-    xhr.onload = function() { if (xhr.status === 200) setAutoBtn(xhr.responseText === 'enabled'); };
-    xhr.send(null);
-}
-function setAutoBtn(on) {
-    var btn = document.getElementById('autoToggle');
-    btn.textContent = on ? 'ON' : 'OFF';
-    btn.className = 'pill ' + (on ? 'on' : 'off');
-}
-function loadAutoUnlockStatus() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/auto-unlock/status');
-    xhr.onload = function() { if (xhr.status === 200) setAutoBtn(xhr.responseText === 'enabled'); };
-    xhr.send();
-}
-
-/* ──────────────────────────────────────────
-   기기 카드 상태 관리
-   ────────────────────────────────────────── */
-var deviceData = {};    // mac → {alias, mac, detected, rssi, last_seen_ms, config}
-var cardState = {};     // mac → 'absent' | 'detecting' | 'present'
-var detectCount = {};   // mac → {cur, need}
-var lastBtTime = {};    // mac → Date.now()
-var pairEvents = [];    // pairing modal event list
-var pairModalSeq = 0;    // stale callback invalidation token
-var pairInfoHtml = '블루투스 설정에서 "Doorman"을 찾아 연결하세요.';
-
-var STATE_COLORS = {
-    absent:    '#e5e7eb',
-    present:   '#16a34a'
-};
-
-function renderDeviceCards() {
-    var container = document.getElementById('deviceCards');
-    var macs = Object.keys(deviceData);
-    if (macs.length === 0) {
-        container.innerHTML = '<div class="empty-state">등록된 기기가 없습니다.<br>우상단 [+ 기기] 버튼을 눌러 블루투스 기기를 연결하세요.</div>';
-        return;
-    }
-    for (var i = 0; i < macs.length; i++) {
-        var mac = macs[i];
-        var dev = deviceData[mac];
-        var existingCard = document.getElementById('card-' + macToId(mac));
-        if (!existingCard) {
-            var card = document.createElement('div');
-            card.className = 'status-card';
-            card.id = 'card-' + macToId(mac);
-            card.setAttribute('data-mac', mac);
-            card.innerHTML =
-                '<div class="card-header">' +
-                  '<span class="card-alias"></span>' +
-                  '<span class="card-mac"></span>' +
-                '</div>' +
-                '<div class="card-status"></div>';
-            card.addEventListener('click', (function(m) {
-                return function() { openDetailModal(m); };
-            })(mac));
-            card.addEventListener('animationend', function() {
-                this.classList.remove('burst');
-            });
-            container.appendChild(card);
+    const api = (() => {
+        async function fetchJSON(path) {
+            const res = await fetch(path, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error(`${path} ${res.status}`);
+            return res.json();
         }
-        updateCardDisplay(mac);
-    }
-    // 삭제된 기기 카드 제거
-    var cards = container.querySelectorAll('.status-card');
-    for (var j = 0; j < cards.length; j++) {
-        var cardMac = cards[j].getAttribute('data-mac');
-        if (!deviceData[cardMac]) cards[j].remove();
-    }
-}
-
-function updateCardDisplay(mac) {
-    var card = document.getElementById('card-' + macToId(mac));
-    if (!card) return;
-    var dev = deviceData[mac];
-    if (!dev) return;
-
-    // detecting은 상태가 아니라 이펙트. 색상은 present/absent 두 가지만.
-    var rawState = cardState[mac] || (dev.detected ? 'present' : 'absent');
-    var isDetecting = rawState === 'detecting';
-    var baseState = isDetecting ? 'absent' : rawState;
-    var color = STATE_COLORS[baseState] || '#e5e7eb';
-
-    card.style.setProperty('--status-color', color);
-    card.style.setProperty('--ripple-color', color);
-    card.querySelector('.card-alias').textContent = dev.alias || mac;
-    card.querySelector('.card-mac').textContent = mac;
-
-    var statusText = '';
-    if (isDetecting) {
-        var dc = detectCount[mac];
-        statusText = dc ? '감지 중 ' + dc.cur + '/' + dc.need : '감지 중';
-    } else if (baseState === 'absent') {
-        statusText = '미감지';
-    } else if (baseState === 'present') {
-        var rssiVisible = dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0;
-        var rssiStr = rssiVisible ? ' · RSSI ' + dev.rssi : '';
-        var agoStr = '';
-        if (lastBtTime[mac]) {
-            var sec = Math.floor((Date.now() - lastBtTime[mac]) / 1000);
-            if (sec >= 1) agoStr = ' · ' + sec + '초 전';
+        async function fetchText(path) {
+            const res = await fetch(path, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error(`${path} ${res.status}`);
+            return (await res.text()).trim();
         }
-        statusText = '재실' + rssiStr + agoStr;
-    }
+        return { fetchJSON, fetchText };
+    })();
 
-    card.querySelector('.card-status').textContent = statusText;
-}
+    /**
+     * state 모듈 — 컴포넌트 외부에서 생성되는 전역 signal 보관소.
+     *
+     * Preact signals는 Map 같은 비-React 컨테이너에 자유롭게 들어갑니다.
+     * 디바이스별 signal은 lazy create — WS에서 처음 본 mac이라도 그 자리에서 만듭니다.
+     * devices 쿼리 응답이 도착하면 effect에서 응답에 없는 mac은 reconcile로 정리.
+     */
+    const state = (() => {
+        // mac → { rssi: signal<number|null>, state: signal<string|null>, lastSeen: signal<number> }
+        const deviceSignals = new Map();
 
-function updateCardRssi(mac, rssi) {
-    if (!deviceData[mac]) return;
-    deviceData[mac].rssi = rssi;
-    lastBtTime[mac] = Date.now();
-    var card = document.getElementById('card-' + macToId(mac));
-    if (!card) return;
-    // present 상태면 RSSI 갱신 표시
-    if (cardState[mac] === 'present') {
-        updateCardDisplay(mac);
-    }
-}
-
-function updateCardState(mac, state, line) {
-    if (!deviceData[mac]) return;
-
-    if (state === 'detecting') {
-        cardState[mac] = 'detecting';
-        var dm = line.match(/detecting (\d+)\/(\d+)/);
-        if (dm) detectCount[mac] = { cur: parseInt(dm[1]), need: parseInt(dm[2]) };
-        updateCardDisplay(mac);
-        // detecting 로그마다 1회 burst
-        var card = document.getElementById('card-' + macToId(mac));
-        if (card) {
-            card.classList.remove('burst');
-            void card.offsetWidth;
-            card.classList.add('burst');
-        }
-    } else if (state === 'present') {
-        cardState[mac] = 'present';
-        detectCount[mac] = null;
-        updateCardDisplay(mac);
-        var card = document.getElementById('card-' + macToId(mac));
-        if (card) {
-            card.classList.remove('burst');
-            void card.offsetWidth;
-            card.classList.add('burst');
-        }
-    } else if (state === 'absent') {
-        cardState[mac] = 'absent';
-        detectCount[mac] = null;
-        updateCardDisplay(mac);
-    } else if (state === 'unlock') {
-        // present 전환은 이미 됐으므로 상태만 맞춤
-        cardState[mac] = 'present';
-        updateCardDisplay(mac);
-    }
-}
-
-function onDevicePaired(mac, name) {
-    // 페어링 모달이 열려있으면 "연결됨!" 표시
-    var pairModal = document.getElementById('pairModal');
-    if (pairModal.open) {
-        addPairEvent(name || mac, mac);
-        document.getElementById('pairSpinner').style.display = 'none';
-        document.getElementById('pairDone').style.display = 'block';
-    }
-    // 1초 후 기기 목록 갱신
-    setTimeout(loadDevices, 1000);
-}
-
-function applyFullState(data) {
-    if (data.auto_unlock !== undefined) setAutoBtn(data.auto_unlock);
-    if (data.devices) {
-        // REST 응답을 기준으로 카드 상태를 재구성
-        var newData = {};
-        var newCardState = {};
-        var newDetectCount = {};
-        var newLastBtTime = {};
-        for (var i = 0; i < data.devices.length; i++) {
-            var d = data.devices[i];
-            newData[d.mac] = d;
-            newCardState[d.mac] = d.detected ? 'present' : 'absent';
-            newDetectCount[d.mac] = null;
-            if (d.detected) newLastBtTime[d.mac] = Date.now();
-        }
-        deviceData = newData;
-        cardState = newCardState;
-        detectCount = newDetectCount;
-        lastBtTime = newLastBtTime;
-        renderDeviceCards();
-    }
-}
-
-function loadDevices() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/devices');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            try {
-                applyFullState(JSON.parse(xhr.responseText));
-            } catch(e) {}
-        }
-    };
-    xhr.send();
-}
-
-function renderPairEvents() {
-    var box = document.getElementById('pairEvents');
-    if (!box) return;
-    if (!pairEvents.length) {
-        box.innerHTML = '<div class="pair-empty">아직 연결된 기기가 없습니다.</div>';
-        return;
-    }
-
-    var html = '';
-    for (var i = 0; i < pairEvents.length; i++) {
-        html += '<div class="pair-event">' +
-                    '<div class="pair-event-title">' + escapeHtml(pairEvents[i].title) + '</div>' +
-                    '<div class="pair-event-meta">' + escapeHtml(pairEvents[i].meta) + '</div>' +
-                '</div>';
-    }
-    box.innerHTML = html;
-}
-
-function addPairEvent(title, meta) {
-    pairEvents.push({ title: title, meta: meta });
-    if (pairEvents.length > 8) {
-        pairEvents = pairEvents.slice(pairEvents.length - 8);
-    }
-    renderPairEvents();
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function syncPairingState(wantOn, seq, cb) {
-    var statusXhr = new XMLHttpRequest();
-    statusXhr.open('GET', '/api/pairing/status');
-    statusXhr.onload = function() {
-        if (seq !== pairModalSeq) return;
-        if (statusXhr.status !== 200) {
-            if (cb) cb(false, false);
-            return;
+        function getDeviceSignals(mac) {
+            let s = deviceSignals.get(mac);
+            if (!s) {
+                s = {
+                    rssi: signal(null),
+                    state: signal(null),
+                    lastSeen: signal(0),
+                };
+                deviceSignals.set(mac, s);
+            }
+            return s;
         }
 
-        var isOn = statusXhr.responseText === 'on';
-        if (isOn === wantOn) {
-            if (cb) cb(true, isOn);
-            return;
+        function deleteDevice(mac) {
+            deviceSignals.delete(mac);
         }
 
-        var toggleXhr = new XMLHttpRequest();
-        toggleXhr.open('POST', '/api/pairing/toggle');
-        toggleXhr.onload = function() {
-            if (seq !== pairModalSeq) return;
-            if (toggleXhr.status !== 200) {
-                if (cb) cb(false, isOn);
+        function knownMacs() {
+            return Array.from(deviceSignals.keys());
+        }
+
+        /** WS 연결 상태: 'connecting' | 'open' | 'closed' */
+        const wsStatus = signal('closed');
+
+        /** 누적 페어링 이벤트 (최신이 앞) */
+        const pairEvents = signal([]);  // [{title, meta, time}]
+
+        function addPairEvent(title, meta) {
+            pairEvents.value = [{ title, meta, time: Date.now() }, ...pairEvents.value].slice(0, 50);
+        }
+
+        /**
+         * 페어링 종료 신호. WS 라우터에서 'paired' 또는 'BLE auth complete' 수신 시 set.
+         * PairModal은 이 signal로 spinner ↔ done 화면 전환.
+         */
+        const pairingDone = signal(false);
+
+        function resetPairing() {
+            pairEvents.value = [];
+            pairingDone.value = false;
+        }
+
+        /** 로그 라인 버퍼 (오래된 것이 앞) */
+        const MAX_LOG_LINES = 500;
+        const logBuffer = signal([]);
+
+        function appendLog(line) {
+            const next = logBuffer.value.length >= MAX_LOG_LINES
+                ? [...logBuffer.value.slice(1), line]
+                : [...logBuffer.value, line];
+            logBuffer.value = next;
+        }
+
+        /** monitor 라인에서 추출되는 시스템 통계 */
+        const sysStats = signal(null);  // { ramFree, ramTotal, psramFree, psramTotal, tasks }
+
+        return {
+            getDeviceSignals, deleteDevice, knownMacs,
+            wsStatus, pairEvents, addPairEvent,
+            pairingDone, resetPairing,
+            logBuffer, appendLog,
+            sysStats,
+        };
+    })();
+
+    /**
+     * ws 모듈 — WebSocket 연결 매니저 + line accumulator + 메시지 라우터.
+     *
+     * 외부에서 wsToken과 queryClient를 주입받아 connect. 책임 분리:
+     * - 라인 분리(accumulator): \n 경계로 안전하게, 미완 라인은 buffer에 보관.
+     * - 라우팅: 6개 정규식 중 첫 매칭만 액션 (frontend/index.html:1161-1185 동작 보존).
+     * - 모든 라인은 무조건 logBuffer에 push (vanilla 동작 보존).
+     * - epoch race guard: 재연결 시 진행 중인 핸들러 무력화.
+     * - 지수 backoff: 2s → 4s → ... → 30s 캡.
+     */
+    const ws = (() => {
+        let socket = null;
+        let lineBuf = '';
+        let epoch = 0;
+        let reconnectDelay = 2000;
+        let pendingReconnect = null;
+
+        const PATTERNS = [
+            // bt: <MAC> rssi=<N>
+            { re: /bt: ([0-9A-F:]{17}) rssi=(-?\d+)/, action: (m) => {
+                const sigs = state.getDeviceSignals(m[1]);
+                sigs.rssi.value = parseInt(m[2], 10);
+                sigs.lastSeen.value = Date.now();
+            }},
+            // bt: <MAC> paired <name>
+            { re: /bt: ([0-9A-F:]{17}) paired (.+)/, action: (m, _line, queryClient) => {
+                state.addPairEvent(`페어링 완료: ${m[2]}`, `MAC ${m[1]}`);
+                state.pairingDone.value = true;
+                queryClient.invalidateQueries({ queryKey: ['devices'] });
+            }},
+            // BLE auth complete
+            { re: /BLE auth complete: success=yes addr=([0-9A-F:]{17})/, action: (m, _line, queryClient) => {
+                state.addPairEvent('BLE 인증 완료', `MAC ${m[1]}`);
+                state.pairingDone.value = true;
+                queryClient.invalidateQueries({ queryKey: ['devices'] });
+            }},
+            // sm: <MAC> <state>
+            { re: /sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/, action: (m, line) => {
+                const sigs = state.getDeviceSignals(m[1]);
+                sigs.state.value = line.trim();  // 전체 라인 보관 (detecting X/Y 형태 포함)
+            }},
+            // monitor: ram=A/B psram=C/D tasks=N
+            { re: /monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/, action: (m) => {
+                state.sysStats.value = {
+                    ramFree: parseInt(m[1], 10), ramTotal: parseInt(m[2], 10),
+                    psramFree: parseInt(m[3], 10), psramTotal: parseInt(m[4], 10),
+                    tasks: parseInt(m[5], 10),
+                };
+            }},
+        ];
+
+        function processLine(line, queryClient) {
+            if (!line) {
                 return;
             }
-            if (cb) cb(true, toggleXhr.responseText === 'on');
-        };
-        toggleXhr.onerror = function() {
-            if (seq !== pairModalSeq) return;
-            if (cb) cb(false, isOn);
-        };
-        toggleXhr.send(null);
-    };
-    statusXhr.onerror = function() {
-        if (seq !== pairModalSeq) return;
-        if (cb) cb(false, false);
-    };
-    statusXhr.send(null);
-}
-
-// 매초 카드 + 모달 표시 갱신 ("N초 전" 타이머 업데이트)
-setInterval(function() {
-    var macs = Object.keys(deviceData);
-    for (var i = 0; i < macs.length; i++) {
-        updateCardDisplay(macs[i]);
-    }
-    if (currentDetailMac) updateModalStatusText(currentDetailMac);
-}, 1000);
-
-/* ──────────────────────────────────────────
-   기기 상세 모달
-   ────────────────────────────────────────── */
-var currentDetailMac = null;
-
-function updateModalStatusText(mac) {
-    var dev = deviceData[mac];
-    if (!dev) return;
-    var state = cardState[mac] || (dev.detected ? 'present' : 'absent');
-    var stateLabel = state === 'present' ? '재실' : (state === 'detecting' ? '감지 중' : '미감지');
-    var rssiVisible = (dev.rssi !== undefined && dev.rssi !== null && dev.rssi !== 0);
-    var rssiStr = rssiVisible ? ' · RSSI ' + dev.rssi : '';
-    var agoStr = '';
-    if (lastBtTime[mac]) {
-        var sec = Math.floor((Date.now() - lastBtTime[mac]) / 1000);
-        if (sec >= 1) agoStr = ' · ' + sec + '초 전';
-    }
-    document.getElementById('modalStatusText').textContent = stateLabel + rssiStr + agoStr;
-}
-
-function openDetailModal(mac) {
-    var dev = deviceData[mac];
-    if (!dev) return;
-    currentDetailMac = mac;
-
-    document.getElementById('modalTitle').textContent = dev.alias || mac;
-
-    updateModalStatusText(mac);
-
-    // 폼 채우기
-    document.getElementById('modalAlias').value = dev.alias || '';
-    if (dev.config) {
-        document.getElementById('modalRssi').value = dev.config.rssi_threshold !== undefined ? dev.config.rssi_threshold : '';
-        document.getElementById('modalTimeout').value = dev.config.presence_timeout_ms !== undefined ? dev.config.presence_timeout_ms : '';
-        document.getElementById('modalWindow').value = dev.config.enter_window_ms !== undefined ? dev.config.enter_window_ms : '';
-        document.getElementById('modalCount').value = dev.config.enter_min_count !== undefined ? dev.config.enter_min_count : '';
-    }
-
-    document.getElementById('modalStatus').style.display = 'none';
-
-    var modal = document.getElementById('detailModal');
-    document.body.style.overflow = 'hidden';
-    modal.showModal();
-}
-
-function closeDetailModal() {
-    var modal = document.getElementById('detailModal');
-    modal.close();
-    document.body.style.overflow = '';
-    currentDetailMac = null;
-}
-
-document.getElementById('detailModal').addEventListener('click', function(e) {
-    if (e.target === this) closeDetailModal();
-});
-document.getElementById('detailModal').addEventListener('cancel', function(e) {
-    e.preventDefault();
-    closeDetailModal();
-});
-
-function saveDeviceConfig() {
-    if (!currentDetailMac) return;
-    show('modalStatus', '저장 중...', 'run');
-
-    var parts = ['mac=' + encodeURIComponent(currentDetailMac)];
-    var alias = document.getElementById('modalAlias').value.trim();
-    parts.push('alias=' + encodeURIComponent(alias));
-    var rssi = document.getElementById('modalRssi').value;
-    if (rssi !== '') parts.push('rssi=' + encodeURIComponent(rssi));
-    var timeout = document.getElementById('modalTimeout').value;
-    if (timeout !== '') parts.push('timeout=' + encodeURIComponent(timeout));
-    var win = document.getElementById('modalWindow').value;
-    if (win !== '') parts.push('enter_window=' + encodeURIComponent(win));
-    var count = document.getElementById('modalCount').value;
-    if (count !== '') parts.push('enter_count=' + encodeURIComponent(count));
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/devices/config');
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            show('modalStatus', '저장됨!', 'ok');
-            // alias 갱신
-            if (alias && deviceData[currentDetailMac]) {
-                deviceData[currentDetailMac].alias = alias;
-                updateCardDisplay(currentDetailMac);
+            state.appendLog(line);
+            for (const { re, action } of PATTERNS) {
+                const m = line.match(re);
+                if (m) {
+                    action(m, line, queryClient);
+                    break;  // 첫 매칭만
+                }
             }
-            setTimeout(loadDevices, 500);
-        } else {
-            show('modalStatus', '오류: ' + xhr.responseText, 'err');
         }
-    };
-    xhr.onerror = function() { show('modalStatus', '연결 끊김', 'err'); };
-    xhr.send(parts.join('&'));
-}
 
-function deleteCurrentDevice() {
-    if (!currentDetailMac) return;
-    var mac = currentDetailMac;
-    if (!confirm(mac + ' 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.')) return;
-    show('modalStatus', '삭제 중...', 'run');
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/devices/delete');
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            show('modalStatus', '삭제됨', 'ok');
-            delete deviceData[mac];
-            delete cardState[mac];
-            delete detectCount[mac];
-            delete lastBtTime[mac];
-            renderDeviceCards();
-            setTimeout(closeDetailModal, 800);
-        } else {
-            show('modalStatus', '오류: ' + xhr.responseText, 'err');
-        }
-    };
-    xhr.onerror = function() { show('modalStatus', '연결 끊김', 'err'); };
-    xhr.send('mac=' + encodeURIComponent(mac));
-}
-
-/* ──────────────────────────────────────────
-   페어링 모달
-   ────────────────────────────────────────── */
-function openPairModal() {
-    var modal = document.getElementById('pairModal');
-    document.getElementById('pairInfo').innerHTML = pairInfoHtml;
-    document.getElementById('pairInfo').style.display = 'block';
-    document.getElementById('pairSpinner').style.display = 'none';
-    document.getElementById('pairDone').style.display = 'none';
-    pairEvents = [];
-    renderPairEvents();
-
-    document.body.style.overflow = 'hidden';
-    modal.showModal();
-
-    var seq = ++pairModalSeq;
-    syncPairingState(true, seq, function(ok, isOn) {
-        if (seq !== pairModalSeq) return;
-        if (!ok) {
-            document.getElementById('pairInfo').textContent = '페어링 상태를 확인하지 못했습니다. 다시 시도하세요.';
-            document.getElementById('pairInfo').style.display = 'block';
-            document.getElementById('pairSpinner').style.display = 'none';
-            return;
-        }
-        if (isOn) {
-            // 안내문은 계속 보여야 하고(사용자가 따라야 할 instructions),
-            // 그 아래 스피너가 함께 돌아 "대기 중" 상태를 표시합니다.
-            // 실제 연결이 들어오면 onDevicePaired가 스피너를 끄고 pairDone을 보여줍니다.
-            document.getElementById('pairSpinner').style.display = 'flex';
-        }
-    });
-}
-
-function closePairModal() {
-    var modal = document.getElementById('pairModal');
-    var seq = ++pairModalSeq;
-    modal.close();
-    document.body.style.overflow = '';
-
-    document.getElementById('pairInfo').innerHTML = pairInfoHtml;
-    document.getElementById('pairInfo').style.display = 'block';
-    document.getElementById('pairSpinner').style.display = 'none';
-    document.getElementById('pairDone').style.display = 'none';
-
-    syncPairingState(false, seq, function() {});
-}
-
-document.getElementById('pairModal').addEventListener('click', function(e) {
-    if (e.target === this) closePairModal();
-});
-document.getElementById('pairModal').addEventListener('cancel', function(e) {
-    e.preventDefault();
-    closePairModal();
-});
-
-/* ──────────────────────────────────────────
-   로그 오버레이
-   ────────────────────────────────────────── */
-function openLogOverlay() {
-    document.getElementById('logOverlay').classList.add('open');
-    document.body.style.overflow = 'hidden';
-}
-function closeLogOverlay() {
-    document.getElementById('logOverlay').classList.remove('open');
-    document.body.style.overflow = '';
-}
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        if (document.getElementById('logOverlay').classList.contains('open')) closeLogOverlay();
-    }
-});
-
-/* ──────────────────────────────────────────
-   로그
-   ────────────────────────────────────────── */
-var MAX_LOG_LINES = 500;
-var rawLogs = [];
-var autoFollow = true;
-var knownTags = {};
-var allChecked = true;
-var tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
-
-document.getElementById('logArea').addEventListener('scroll', function() {
-    autoFollow = (this.scrollHeight - this.scrollTop - this.clientHeight) < 50;
-});
-
-function extractTag(line) {
-    var m = line.match(tagRegex);
-    return m ? m[1] : null;
-}
-
-function renderTagFilters() {
-    var c = document.getElementById('tagFilters');
-    var h = '<label><input type="checkbox" id="tagAll" onchange="toggleAllTags(this.checked)" ' + (allChecked ? 'checked' : '') + '> All</label>';
-    var tags = Object.keys(knownTags).sort();
-    for (var i = 0; i < tags.length; i++) {
-        h += '<label><input type="checkbox" data-tag="' + tags[i] + '" onchange="onTagChange()" ' + (knownTags[tags[i]] ? 'checked' : '') + '> ' + tags[i] + '</label>';
-    }
-    c.innerHTML = h;
-}
-
-function toggleAllTags(checked) {
-    allChecked = checked;
-    var t = Object.keys(knownTags);
-    for (var i = 0; i < t.length; i++) knownTags[t[i]] = checked;
-    renderTagFilters();
-    renderFilteredLogs();
-}
-
-function onTagChange() {
-    var boxes = document.querySelectorAll('#tagFilters input[data-tag]');
-    var allOn = true;
-    for (var i = 0; i < boxes.length; i++) {
-        knownTags[boxes[i].getAttribute('data-tag')] = boxes[i].checked;
-        if (!boxes[i].checked) allOn = false;
-    }
-    allChecked = allOn;
-    var a = document.getElementById('tagAll');
-    if (a) a.checked = allOn;
-    renderFilteredLogs();
-}
-
-function renderFilteredLogs() {
-    var area = document.getElementById('logArea');
-    var tf = document.getElementById('textFilter').value.toLowerCase();
-    var f = [];
-    for (var i = 0; i < rawLogs.length; i++) {
-        var tag = extractTag(rawLogs[i]);
-        if (tag !== null && !knownTags[tag]) continue;
-        if (tf && rawLogs[i].toLowerCase().indexOf(tf) === -1) continue;
-        f.push(rawLogs[i]);
-    }
-    area.textContent = f.join('\n');
-    if (autoFollow) area.scrollTop = area.scrollHeight;
-}
-
-/* ──────────────────────────────────────────
-   WS 로그 파싱
-   ────────────────────────────────────────── */
-var lineBuf = '';
-var logDirty = false;
-var rafId = 0;
-
-function processWsData(data) {
-    var combined = lineBuf + data;
-    var lines = combined.split('\n');
-    lineBuf = lines[lines.length - 1]; // 불완전 라인 보관
-
-    var tagUpdated = false;
-    for (var i = 0; i < lines.length - 1; i++) {
-        var l = lines[i];
-        if (l === '') continue;
-        rawLogs.push(l);
-        if (rawLogs.length > MAX_LOG_LINES) rawLogs = rawLogs.slice(rawLogs.length - MAX_LOG_LINES);
-
-        // 태그 수집
-        var tag = extractTag(l);
-        if (tag && !(tag in knownTags)) { knownTags[tag] = true; tagUpdated = true; }
-
-        // 카드 업데이트
-        var bt = l.match(/bt: ([0-9A-F:]{17}) rssi=(-?\d+)/);
-        if (bt) { updateCardRssi(bt[1], parseInt(bt[2])); continue; }
-
-        var pair = l.match(/bt: ([0-9A-F:]{17}) paired (.+)/);
-        if (pair) { onDevicePaired(pair[1], pair[2]); continue; }
-
-        var blePair = l.match(/BLE auth complete: success=yes addr=([0-9A-F:]{17})/);
-        if (blePair) { onDevicePaired(blePair[1], 'BLE 기기'); continue; }
-
-        var sm = l.match(/sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/);
-        if (sm) { updateCardState(sm[1], sm[2], l); continue; }
-
-        var mon = l.match(/monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/);
-        if (mon) {
-            // 펌웨어 로그가 used/total 형식. (monitor_task.cpp 참조)
-            var ramUsed = parseInt(mon[1]);
-            var ramT = parseInt(mon[2]);
-            var ramPct = ramT > 0 ? Math.round(ramUsed / ramT * 100) : 0;
-            var psUsed = parseInt(mon[3]);
-            var psT = parseInt(mon[4]);
-            var psPct = psT > 0 ? Math.round(psUsed / psT * 100) : 0;
-            document.getElementById('sysStats').textContent =
-                'RAM ' + ramPct + '% · PSRAM ' + psPct + '% · tasks ' + mon[5];
-            continue;
-        }
-    }
-
-    if (tagUpdated) renderTagFilters();
-    logDirty = true;
-    if (!rafId) rafId = requestAnimationFrame(flushRender);
-}
-
-function flushRender() {
-    rafId = 0;
-    if (logDirty) { renderFilteredLogs(); logDirty = false; }
-}
-
-/* ──────────────────────────────────────────
-   WS 재연결 (epoch 기반 + REST 동기화)
-   ────────────────────────────────────────── */
-var wsEpoch = 0;
-var syncing = false;
-var wsBuffer = [];
-var wsToken = '';
-var reconnectDelay = 2000;
-var ws = null;
-var host = location.host || 'doorman.local';
-
-function wsConnect() {
-    if (!wsToken) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/ws-token');
-        xhr.onload = function() {
-            if (xhr.status === 200) { wsToken = xhr.responseText; wsConnect(); }
-            else setTimeout(wsConnect, 3000);
-        };
-        xhr.onerror = function() { setTimeout(wsConnect, 3000); };
-        xhr.send();
-        return;
-    }
-
-    var currentEpoch = ++wsEpoch;
-    syncing = true; wsBuffer = [];
-
-    var wsScheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    ws = new WebSocket(wsScheme + host + '/ws?token=' + wsToken);
-
-    ws.onopen = function() {
-        document.getElementById('wsDot').className = 'ws-dot dot-ok';
-        document.getElementById('wsLabel').textContent = '연결됨';
-        reconnectDelay = 2000;
-
-        // REST로 전체 상태 fetch
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/devices');
-        xhr.onload = function() {
-            if (currentEpoch !== wsEpoch) return;
-            if (xhr.status === 200) {
-                try { applyFullState(JSON.parse(xhr.responseText)); } catch(e) {}
+        function connect(token, queryClient) {
+            if (socket) {
+                try { socket.close(); } catch (e) {}
+                socket = null;
             }
-            for (var i = 0; i < wsBuffer.length; i++) processWsData(wsBuffer[i]);
-            wsBuffer = []; syncing = false;
-        };
-        xhr.onerror = function() {
-            if (currentEpoch !== wsEpoch) return;
-            for (var i = 0; i < wsBuffer.length; i++) processWsData(wsBuffer[i]);
-            wsBuffer = []; syncing = false;
-        };
-        xhr.send();
-    };
-
-    ws.onmessage = function(evt) {
-        if (currentEpoch !== wsEpoch) return;
-        if (syncing) wsBuffer.push(evt.data);
-        else processWsData(evt.data);
-    };
-
-    ws.onclose = function() {
-        if (currentEpoch !== wsEpoch) return;
-        document.getElementById('wsDot').className = 'ws-dot dot-err';
-        document.getElementById('wsLabel').textContent = '연결 끊김. 재연결 중...';
-        var delay = Math.min(reconnectDelay + Math.random() * 1000, 30000);
-        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-        setTimeout(wsConnect, delay);
-    };
-
-    ws.onerror = function() {
-        document.getElementById('wsDot').className = 'ws-dot dot-err';
-        document.getElementById('wsLabel').textContent = '오류';
-        ws.close();
-    };
-}
-
-/* ──────────────────────────────────────────
-   관리 기능
-   ────────────────────────────────────────── */
-function uploadFirmware() {
-    var file = document.getElementById('file').files[0];
-    if (!file) { show('otaStatus', '.bin 파일을 선택하세요.', 'err'); return; }
-    var bar = document.getElementById('progress');
-    bar.style.display = 'block'; bar.value = 0;
-    show('otaStatus', '업로드 중...', 'run');
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/firmware/upload');
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    xhr.upload.onprogress = function(e) { if (e.lengthComputable) bar.value = Math.round(e.loaded / e.total * 100); };
-    xhr.onload = function() {
-        if (xhr.status === 200) { bar.value = 100; show('otaStatus', '업로드 완료. 재부팅 중...', 'ok'); }
-        else { show('otaStatus', '실패: ' + xhr.responseText, 'err'); bar.style.display = 'none'; }
-    };
-    xhr.onerror = function() { show('otaStatus', '연결 끊김. 기기가 재부팅 중일 수 있습니다.', 'ok'); };
-    xhr.send(file);
-}
-
-function updateAuth() {
-    var user = document.getElementById('authUser').value.trim();
-    var pass = document.getElementById('authPass').value;
-    if (!user || !pass) { show('authStatus', '모든 항목을 입력하세요.', 'err'); return; }
-    show('authStatus', '저장 중...', 'run');
-    post('/api/auth/update', 'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass), 'authStatus', '변경 완료. 탭을 닫고 새 인증으로 접속하세요.', false);
-}
-
-function updateWifi() {
-    var ssid = document.getElementById('wifiSsid').value.trim();
-    var pass = document.getElementById('wifiPass').value;
-    if (!ssid) { show('wifiStatus', 'SSID를 입력하세요.', 'err'); return; }
-    show('wifiStatus', '저장 중...', 'run');
-    post('/api/wifi/update', 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass), 'wifiStatus', '저장됨! 기기 재부팅 중...', true);
-}
-
-function rebootDevice() {
-    if (!confirm('기기를 재부팅할까요?')) return;
-    show('rebootStatus', '재부팅 중...', 'run');
-    post('/api/reboot', null, 'rebootStatus', '재부팅 중...', true);
-}
-
-/* ──────────────────────────────────────────
-   Slack Webhook 설정 — wifi/auth와 동일 패턴 (input → save → status)
-   ────────────────────────────────────────── */
-function updateSlack() {
-    var url = document.getElementById('slackUrl').value.trim();
-    post('/api/slack/update', 'url=' + encodeURIComponent(url),
-         'slackStatus', url ? '저장됨' : '알림 해제됨', false);
-}
-
-/* ──────────────────────────────────────────
-   초기화
-   ────────────────────────────────────────── */
-loadAutoUnlockStatus();
-wsConnect();
-
-(function() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/info');
-    xhr.onload = function() {
-        if (xhr.status !== 200) return;
-        try {
-            var info = JSON.parse(xhr.responseText);
-            document.getElementById('buildInfo').textContent = info.version + ' · ' + info.date;
-            if (info.safe_mode) {
-                document.getElementById('safeBanner').style.display = 'block';
-                document.querySelector('.door-btn').disabled = true;
-                var at = document.getElementById('autoToggle');
-                if (at) at.disabled = true;
+            if (pendingReconnect) {
+                clearTimeout(pendingReconnect);
+                pendingReconnect = null;
             }
-        } catch(e) {
-            document.getElementById('buildInfo').textContent = xhr.responseText;
-        }
-    };
-    xhr.send();
-})();
+            if (!token) {
+                state.wsStatus.value = 'closed';
+                return;
+            }
 
+            const currentEpoch = ++epoch;
+            state.wsStatus.value = 'connecting';
+            const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const url = `${scheme}${location.host}/ws?token=${encodeURIComponent(token)}`;
+            socket = new WebSocket(url);
+            lineBuf = '';
+
+            socket.onopen = () => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                state.wsStatus.value = 'open';
+                reconnectDelay = 2000;
+            };
+
+            socket.onmessage = (evt) => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                const data = typeof evt.data === 'string' ? evt.data : '';
+                const merged = lineBuf + data;
+                const parts = merged.split('\n');
+                lineBuf = parts.pop();  // 마지막 (미완 가능)
+                for (const p of parts) {
+                    processLine(p, queryClient);
+                }
+            };
+
+            socket.onclose = () => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                state.wsStatus.value = 'closed';
+                const d = reconnectDelay;
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                pendingReconnect = setTimeout(() => connect(token, queryClient), d);
+            };
+
+            socket.onerror = () => {
+                // onclose가 이어짐 — 별도 처리 불필요
+            };
+        }
+
+        function disconnect() {
+            epoch++;  // 진행 중인 핸들러 무력화
+            if (pendingReconnect) {
+                clearTimeout(pendingReconnect);
+                pendingReconnect = null;
+            }
+            if (socket) {
+                try { socket.close(); } catch (e) {}
+                socket = null;
+            }
+            state.wsStatus.value = 'closed';
+        }
+
+        return { connect, disconnect };
+    })();
+
+    /**
+     * mutations 모듈 — POST 액션을 wrap하는 useMutation 훅 모음.
+     *
+     * useDoorOpen: 응답은 'OK' 텍스트 (펌웨어 server.cpp door_open_handler).
+     * useAutoUnlockToggle: 응답이 'enabled'/'disabled' 텍스트 — onSuccess에서
+     *   ['autoUnlock'] 캐시를 직접 setQueryData로 갱신해 refetch 한 번 절약.
+     */
+    const mutations = (() => {
+        function useDoorOpen() {
+            return useMutation({
+                mutationFn: () => fetch('/api/door/open', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useAutoUnlockToggle(queryClient) {
+            return useMutation({
+                mutationFn: () => fetch('/api/auto-unlock/toggle', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text().then((t) => t.trim());
+                }),
+                onSuccess: (data) => {
+                    queryClient.setQueryData(['autoUnlock'], data);
+                },
+            });
+        }
+        function useSlackUpdate() {
+            return useMutation({
+                mutationFn: (url) => fetch('/api/slack/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'url=' + encodeURIComponent(url),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useAuthUpdate() {
+            return useMutation({
+                mutationFn: ({ user, pass }) => fetch('/api/auth/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useWifiUpdate() {
+            return useMutation({
+                mutationFn: ({ ssid, pass }) => fetch('/api/wifi/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useReboot() {
+            return useMutation({
+                mutationFn: () => fetch('/api/reboot', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        /**
+         * useDeviceConfigSave — 디바이스 별명/감지 파라미터 저장.
+         *
+         * mac은 필수, 나머지는 빈 문자열/undefined면 form에서 제외 (v1 동작 보존).
+         * 성공 시 ['devices'] invalidate로 카드 리프레시.
+         */
+        function useDeviceConfigSave(queryClient) {
+            return useMutation({
+                mutationFn: ({ mac, alias, rssi, timeout, win, count }) => {
+                    const parts = ['mac=' + encodeURIComponent(mac)];
+                    if (alias !== undefined) {
+                        parts.push('alias=' + encodeURIComponent(alias));
+                    }
+                    if (rssi !== '' && rssi !== undefined) {
+                        parts.push('rssi=' + encodeURIComponent(rssi));
+                    }
+                    if (timeout !== '' && timeout !== undefined) {
+                        parts.push('timeout=' + encodeURIComponent(timeout));
+                    }
+                    if (win !== '' && win !== undefined) {
+                        parts.push('enter_window=' + encodeURIComponent(win));
+                    }
+                    if (count !== '' && count !== undefined) {
+                        parts.push('enter_count=' + encodeURIComponent(count));
+                    }
+                    return fetch('/api/devices/config', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: parts.join('&'),
+                    }).then((r) => {
+                        if (!r.ok) {
+                            throw new Error(String(r.status));
+                        }
+                        return r.text();
+                    });
+                },
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
+            });
+        }
+
+        /** useDeviceDelete — 본딩 해제. 성공 시 ['devices'] invalidate. */
+        function useDeviceDelete(queryClient) {
+            return useMutation({
+                mutationFn: (mac) => fetch('/api/devices/delete', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'mac=' + encodeURIComponent(mac),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
+            });
+        }
+
+        /**
+         * usePairingToggle — 페어링 모드 토글.
+         *
+         * v1 syncPairingState의 retry 루프는 단순화 — 한 번 호출만.
+         * 실패는 mutation.isError로 표면화. 모달이 열릴 때 한 번, 닫힐 때 한 번 호출됨.
+         */
+        function usePairingToggle(queryClient) {
+            return useMutation({
+                mutationFn: () => fetch('/api/pairing/toggle', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+                onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pairingStatus'] }),
+            });
+        }
+
+        /**
+         * useOtaUpload — XHR 기반 펌웨어 업로드 + progress signal.
+         *
+         * fetch는 업로드 진행률 이벤트가 없어 XHR로 직접 구현. progress signal은
+         * mutation 객체에 attach해서 컴포넌트가 ota.progress.value로 구독.
+         * 이 함수 자체는 hook을 호출하므로 컴포넌트 안에서만 호출해야 함.
+         */
+        function useOtaUpload() {
+            const progress = useSignal(0);
+            const m = useMutation({
+                mutationFn: (file) => new Promise((resolve, reject) => {
+                    progress.value = 0;
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/firmware/upload');
+                    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            progress.value = Math.round(e.loaded / e.total * 100);
+                        }
+                    };
+                    xhr.onload = () => {
+                        if (xhr.status === 200) {
+                            progress.value = 100;
+                            resolve(xhr.responseText);
+                        } else {
+                            reject(new Error(xhr.responseText || String(xhr.status)));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('연결 끊김'));
+                    xhr.send(file);
+                }),
+            });
+            return { ...m, progress };
+        }
+
+        return {
+            useDoorOpen, useAutoUnlockToggle,
+            useSlackUpdate, useAuthUpdate, useWifiUpdate, useReboot,
+            useDeviceConfigSave, useDeviceDelete, usePairingToggle,
+            useOtaUpload,
+        };
+    })();
+
+    const queries = (() => {
+        function useInfo() {
+            return useQuery({
+                queryKey: ['info'],
+                queryFn: () => api.fetchJSON('/api/info'),
+            });
+        }
+        function useDevices(enabled) {
+            return useQuery({
+                queryKey: ['devices'],
+                queryFn: () => api.fetchJSON('/api/devices'),
+                enabled,
+            });
+        }
+        function useAutoUnlock(enabled) {
+            return useQuery({
+                queryKey: ['autoUnlock'],
+                queryFn: () => api.fetchText('/api/auto-unlock/status'),
+                enabled,
+            });
+        }
+        function useWsToken(enabled) {
+            return useQuery({
+                queryKey: ['wsToken'],
+                queryFn: () => api.fetchText('/api/ws-token'),
+                enabled,
+            });
+        }
+        function usePairingStatus(enabled) {
+            return useQuery({
+                queryKey: ['pairingStatus'],
+                queryFn: () => api.fetchText('/api/pairing/status'),
+                enabled,
+            });
+        }
+        return { useInfo, useDevices, useAutoUnlock, useWsToken, usePairingStatus };
+    })();
+
+    /** MAC을 DOM id-safe 형태로. v1과 동일. */
+    function macToId(mac) {
+        return mac.replace(/:/g, '_');
+    }
+
+    const components = (() => {
+        /**
+         * Header — 제목 + [+ 기기]/[로그] 버튼 + buildInfo + sysStats.
+         *
+         * sysStats는 signal이라 .value 접근으로 자동 구독. monitor 라인 도착 시
+         * 이 컴포넌트만 re-render.
+         */
+        function Header({ info, onPair, onLog }) {
+            const stats = state.sysStats.value;
+            const statsText = stats
+                ? `RAM ${Math.round(stats.ramFree / 1024)}/${Math.round(stats.ramTotal / 1024)}KB`
+                  + ` · PSRAM ${Math.round(stats.psramFree / 1024)}/${Math.round(stats.psramTotal / 1024)}KB`
+                  + ` · ${stats.tasks} tasks`
+                : '';
+            return html`
+                <div class="hdr">
+                    <h1>Doorman</h1>
+                    <div class="hdr-actions">
+                        <button class="icon-btn" onClick=${onPair}>+ 기기</button>
+                        <button class="icon-btn" onClick=${onLog}>📋</button>
+                    </div>
+                </div>
+                <div class="hdr-meta">
+                    <span id="buildInfo">${info.version} · ${info.date}</span>
+                    ${' · '}
+                    <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
+                    <br/>
+                    <span id="sysStats" style="font-size:0.68rem;color:#c4c4c4;">${statsText}</span>
+                </div>
+            `;
+        }
+
+        /** SafeBanner — info.safe_mode가 true일 때만. */
+        function SafeBanner({ safeMode }) {
+            if (!safeMode) {
+                return null;
+            }
+            return html`
+                <div id="safeBanner" class="safe-banner">
+                    세이프 모드 — 연속 crash로 BT/자동열림이 비활성화되었습니다. 펌웨어 업데이트 또는 기기 삭제 후 재부팅하세요.
+                </div>
+            `;
+        }
+
+        /** Tabs — 'main' | 'manage'. current는 부모가 보유한 signal. */
+        function Tabs({ current }) {
+            return html`
+                <div class="tabs">
+                    <button class=${'tab ' + (current.value === 'main' ? 'active' : '')}
+                            onClick=${() => { current.value = 'main'; }}>메인</button>
+                    <button class=${'tab ' + (current.value === 'manage' ? 'active' : '')}
+                            onClick=${() => { current.value = 'manage'; }}>관리</button>
+                </div>
+            `;
+        }
+
+        /**
+         * DoorButton — POST /api/door/open. 결과는 status div에 표시.
+         *
+         * isPending/isSuccess/isError 분기로 v1 show('doorStatus', ...) 동작 보존.
+         */
+        function DoorButton() {
+            const m = mutations.useDoorOpen();
+            let statusClass = '';
+            let statusText = '';
+            if (m.isPending) {
+                statusClass = 'run';
+                statusText = '전송 중...';
+            } else if (m.isSuccess) {
+                statusClass = 'ok';
+                statusText = '✓ 문이 열렸습니다';
+            } else if (m.isError) {
+                statusClass = 'err';
+                statusText = '✗ 실패';
+            }
+            const showStatus = !!statusText;
+            return html`
+                <button class="door-btn" onClick=${() => m.mutate()}>문 열기</button>
+                <div id="doorStatus" class=${'status ' + statusClass}
+                     style=${showStatus ? 'display:block' : 'display:none'}>${statusText}</div>
+            `;
+        }
+
+        /**
+         * AutoUnlockToggle — pill 토글.
+         *
+         * status는 'enabled'/'disabled' 텍스트. mutation onSuccess에서 캐시
+         * 직접 갱신해 즉시 반영.
+         */
+        function AutoUnlockToggle({ status }) {
+            const queryClient = useQueryClient();
+            const m = mutations.useAutoUnlockToggle(queryClient);
+            const on = status === 'enabled';
+            return html`
+                <div class="auto-row">
+                    <span>자동 열림</span>
+                    <button id="autoToggle"
+                            class=${'pill ' + (on ? 'on' : 'off')}
+                            onClick=${() => m.mutate()}>${on ? 'ON' : 'OFF'}</button>
+                </div>
+            `;
+        }
+
+        /**
+         * DeviceCard — props로 mac/alias만 받고 RSSI/state는 signal에서 직접 구독.
+         *
+         * 핵심: 부모 MainTab이 재렌더되지 않아도 sigs.rssi.value 접근으로 이 카드만 갱신.
+         * v1 updateCardDisplay (frontend/index.html:663-698) 로직을 React-style로 옮김.
+         */
+        function DeviceCard({ mac, alias, onClick }) {
+            const sigs = state.getDeviceSignals(mac);
+            const rssi = sigs.rssi.value;
+            const stateLine = sigs.state.value;
+            const lastSeen = sigs.lastSeen.value;
+
+            // detecting은 상태가 아닌 이펙트. 색상은 present/absent 두 가지만 (v1 STATE_COLORS).
+            let baseState = 'absent';
+            let isDetecting = false;
+            let detectCur = null;
+            let detectNeed = null;
+            if (stateLine) {
+                if (stateLine.includes('present') || stateLine.includes('unlock')) {
+                    baseState = 'present';
+                } else if (stateLine.includes('detecting')) {
+                    isDetecting = true;
+                    const dm = stateLine.match(/detecting (\d+)\/(\d+)/);
+                    if (dm) {
+                        detectCur = dm[1];
+                        detectNeed = dm[2];
+                    }
+                }
+            }
+            const color = baseState === 'present' ? '#16a34a' : '#e5e7eb';
+
+            let statusText = '';
+            if (isDetecting) {
+                statusText = detectCur ? `감지 중 ${detectCur}/${detectNeed}` : '감지 중';
+            } else if (baseState === 'absent') {
+                statusText = '미감지';
+            } else if (baseState === 'present') {
+                const rssiStr = (rssi !== null && rssi !== 0) ? ` · RSSI ${rssi}` : '';
+                let agoStr = '';
+                if (lastSeen) {
+                    const sec = Math.floor((Date.now() - lastSeen) / 1000);
+                    if (sec >= 1) {
+                        agoStr = ` · ${sec}초 전`;
+                    }
+                }
+                statusText = `재실${rssiStr}${agoStr}`;
+            }
+
+            return html`
+                <div class="status-card"
+                     id=${'card-' + macToId(mac)}
+                     data-mac=${mac}
+                     style=${`--status-color: ${color}; --ripple-color: ${color}`}
+                     onClick=${() => onClick && onClick(mac)}>
+                    <div class="card-header">
+                        <span class="card-alias">${alias || mac}</span>
+                        <span class="card-mac">${mac}</span>
+                    </div>
+                    <div class="card-status">${statusText}</div>
+                </div>
+            `;
+        }
+
+        /** DeviceCards — devices 응답에서 카드 렌더 + 빈 상태. onCardClick은 mac을 받음. */
+        function DeviceCards({ devices, onCardClick }) {
+            const list = devices?.devices ?? devices ?? [];
+            if (list.length === 0) {
+                return html`
+                    <div class="device-cards" id="deviceCards">
+                        <div class="empty-state">등록된 기기가 없습니다.<br/>우상단 [+ 기기] 버튼을 눌러 블루투스 기기를 연결하세요.</div>
+                    </div>
+                `;
+            }
+            return html`
+                <div class="device-cards" id="deviceCards">
+                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} mac=${d.mac} alias=${d.alias} onClick=${onCardClick}/>`)}
+                </div>
+            `;
+        }
+
+        /** MainTab — 메인 탭 패널 전체. */
+        function MainTab({ devices, autoUnlock, onCardClick }) {
+            return html`
+                <div id="tab-main" class="tab-panel active">
+                    <${DoorButton}/>
+                    <${AutoUnlockToggle} status=${autoUnlock}/>
+                    <${DeviceCards} devices=${devices} onCardClick=${onCardClick}/>
+                </div>
+            `;
+        }
+
+        /**
+         * StatusLine — mutation 상태를 v1 .status div와 동일한 클래스로 매핑.
+         *
+         * v1 show(id, msg, cls) + post() 콜백을 선언적으로 대체합니다.
+         * idle은 null 반환 (v1 .status { display:none } 대응).
+         * inline style display:block은 v1 show()가 명시적으로 설정하던 동작 보존.
+         */
+        function StatusLine({ mutation, okMsg, runMsg = '전송 중...' }) {
+            if (mutation.isPending) {
+                return html`<div class="status run" style="display:block">${runMsg}</div>`;
+            }
+            if (mutation.isSuccess) {
+                return html`<div class="status ok" style="display:block">✓ ${okMsg}</div>`;
+            }
+            if (mutation.isError) {
+                const msg = mutation.error?.message ?? '오류';
+                return html`<div class="status err" style="display:block">✗ 실패: ${msg}</div>`;
+            }
+            return null;
+        }
+
+        /** SlackSection — Webhook URL 저장. 빈 URL 저장 = 알림 끔. */
+        function SlackSection() {
+            const url = useSignal('');
+            const m = mutations.useSlackUpdate();
+            return html`
+                <div class="card">
+                    <div class="card-label">Slack Webhook</div>
+                    <label>URL</label>
+                    <input type="text" maxlength="256" autocomplete="off"
+                           value=${url.value}
+                           onInput=${(e) => { url.value = e.target.value; }}/>
+                    <div class="hint" style="margin-top:6px;">URL을 비우고 저장하면 알림이 꺼집니다.</div>
+                    <button class="btn btn-blue" onClick=${() => m.mutate(url.value.trim())}>저장</button>
+                    <${StatusLine} mutation=${m} okMsg="저장됨"/>
+                </div>
+            `;
+        }
+
+        /**
+         * FirmwareSection — OTA 펌웨어 업로드.
+         *
+         * useOtaUpload는 내부에서 useSignal/useMutation을 호출하므로 컴포넌트 안에서만
+         * 호출 가능. progress signal은 mutation 객체에 attach되어 ota.progress.value로 접근.
+         * isSuccess 후 자동 reload는 안 함 (브레인스토밍 결정 #3) — 사용자가 수동 새로고침.
+         */
+        function FirmwareSection() {
+            const fileSignal = useSignal(null);
+            const ota = mutations.useOtaUpload();
+
+            function onFileChange(e) {
+                fileSignal.value = e.target.files[0] || null;
+            }
+
+            function onUpload() {
+                if (!fileSignal.value) {
+                    return;
+                }
+                ota.mutate(fileSignal.value);
+            }
+
+            const showProgress = ota.isPending || ota.isSuccess;
+            const showHint = !fileSignal.value && !ota.isPending && !ota.isSuccess && !ota.isError;
+
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">펌웨어 업데이트</div>
+                    <input type="file" accept=".bin,application/octet-stream"
+                           onChange=${onFileChange}/>
+                    <button class="btn btn-red" onClick=${onUpload}
+                            disabled=${!fileSignal.value || ota.isPending}>업로드 및 재부팅</button>
+                    ${showProgress && html`
+                        <progress value=${ota.progress.value} max="100"
+                                  style="display:block;margin-top:8px;width:100%"></progress>
+                    `}
+                    ${ota.isPending && html`<div class="status run" style="display:block">업로드 중... ${ota.progress.value}%</div>`}
+                    ${ota.isSuccess && html`<div class="status ok" style="display:block">✓ 업로드 완료. 재부팅 중...</div>`}
+                    ${ota.isError && html`<div class="status err" style="display:block">✗ 실패: ${ota.error?.message ?? '오류'}</div>`}
+                    ${showHint && html`<div class="hint" style="margin-top:6px;">.bin 파일을 선택하세요.</div>`}
+                </div>
+            `;
+        }
+
+        /** AuthSection — 사용자명/비밀번호 변경. v1 updateAuth 동작 보존. */
+        function AuthSection() {
+            const user = useSignal('');
+            const pass = useSignal('');
+            const m = mutations.useAuthUpdate();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">계정</div>
+                    <label>사용자명</label>
+                    <input type="text" maxlength="31" autocomplete="off"
+                           value=${user.value}
+                           onInput=${(e) => { user.value = e.target.value; }}/>
+                    <label>비밀번호</label>
+                    <input type="password" maxlength="63"
+                           value=${pass.value}
+                           onInput=${(e) => { pass.value = e.target.value; }}/>
+                    <button class="btn btn-red"
+                            onClick=${() => m.mutate({ user: user.value.trim(), pass: pass.value })}>계정 변경</button>
+                    <${StatusLine} mutation=${m} okMsg="변경 완료. 탭을 닫고 새 인증으로 접속하세요."/>
+                </div>
+            `;
+        }
+
+        /** WifiSection — SSID/비밀번호 변경 후 재부팅. */
+        function WifiSection() {
+            const ssid = useSignal('');
+            const pass = useSignal('');
+            const m = mutations.useWifiUpdate();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">WiFi</div>
+                    <label>SSID</label>
+                    <input type="text" maxlength="32" autocomplete="off"
+                           value=${ssid.value}
+                           onInput=${(e) => { ssid.value = e.target.value; }}/>
+                    <label>비밀번호</label>
+                    <input type="password" maxlength="63"
+                           value=${pass.value}
+                           onInput=${(e) => { pass.value = e.target.value; }}/>
+                    <button class="btn btn-red"
+                            onClick=${() => m.mutate({ ssid: ssid.value.trim(), pass: pass.value })}>저장 및 재부팅</button>
+                    <${StatusLine} mutation=${m} okMsg="저장됨! 기기 재부팅 중..."/>
+                </div>
+            `;
+        }
+
+        /**
+         * RebootSection — 입력 없는 단일 버튼.
+         *
+         * v1은 confirm() dialog로 가드했으나 Phase 5 산출물 명세는 단순 버튼.
+         * 성공 시 mock 서버는 5초 후 새 wsToken 발급 + ws 강제 종료 (재부팅 시뮬).
+         */
+        function RebootSection() {
+            const m = mutations.useReboot();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">재부팅</div>
+                    <button class="btn btn-red" onClick=${() => m.mutate()}>기기 재부팅</button>
+                    <${StatusLine} mutation=${m} okMsg="재부팅 중..." runMsg="재부팅 중..."/>
+                </div>
+            `;
+        }
+
+        /** ManageTab — 관리 탭 패널 전체. */
+        function ManageTab() {
+            return html`
+                <div id="tab-manage" class="tab-panel active">
+                    <div class="section">
+                        <div class="section-title">설정</div>
+                        <${SlackSection}/>
+                    </div>
+                    <div class="section">
+                        <div class="section-title" style="color:#dc2626;">Danger Zone</div>
+                        <${FirmwareSection}/>
+                        <${AuthSection}/>
+                        <${WifiSection}/>
+                        <${RebootSection}/>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * DetailModal — 디바이스 상세 + 설정 편집 모달.
+         *
+         * mac=null이면 dialog.close(), mac이 set되면 dialog.showModal() (useEffect로 명령형 제어).
+         * Preact는 dialog의 open prop을 인식하지 않아 ref + showModal/close가 표준입니다.
+         * 폼 값은 mac/device 변경마다 reset (편집 도중 외부 데이터로 덮어쓰지 않으려면
+         * 'mac이 바뀐 경우만'으로 더 좁힐 수도 있지만, 상세 모달은 한 번에 하나만 열림).
+         *
+         * 라이브 상태(재실/감지 중)는 device.detected가 아닌 signal 구독으로 표시 —
+         * 카드와 동일한 단일 진실 출처(WS).
+         */
+        function DetailModal({ mac, device, onClose }) {
+            const queryClient = useQueryClient();
+            const dialogRef = useRef(null);
+            const aliasSig = useSignal('');
+            const rssiSig = useSignal('');
+            const timeoutSig = useSignal('');
+            const winSig = useSignal('');
+            const countSig = useSignal('');
+            const saveM = mutations.useDeviceConfigSave(queryClient);
+            const deleteM = mutations.useDeviceDelete(queryClient);
+
+            /**
+             * mac 변경 시에만 폼 reset + mutation reset.
+             * device 객체는 ['devices'] invalidate로 매번 새 ref가 오므로 deps에 넣으면
+             * 저장 직후 invalidate → reset() 으로 isSuccess가 즉시 사라져 사용자에게
+             * 결과가 안 보이는 race가 생깁니다. 같은 mac이면 폼 값을 덮어쓰지 않습니다.
+             */
+            useEffect(() => {
+                if (!mac || !device) {
+                    return;
+                }
+                aliasSig.value = device.alias || '';
+                rssiSig.value = device.config?.rssi_threshold ?? device.rssi_threshold ?? '';
+                timeoutSig.value = device.config?.presence_timeout_ms ?? device.presence_timeout_ms ?? '';
+                winSig.value = device.config?.enter_window_ms ?? device.enter_window_ms ?? '';
+                countSig.value = device.config?.enter_min_count ?? device.enter_min_count ?? '';
+                saveM.reset();
+                deleteM.reset();
+            }, [mac]);
+
+            useEffect(() => {
+                const d = dialogRef.current;
+                if (!d) {
+                    return;
+                }
+                if (mac && !d.open) {
+                    d.showModal();
+                    document.body.style.overflow = 'hidden';
+                } else if (!mac && d.open) {
+                    d.close();
+                    document.body.style.overflow = '';
+                }
+            }, [mac]);
+
+            const sigs = mac ? state.getDeviceSignals(mac) : null;
+            const liveRssi = sigs?.rssi.value;
+            const liveStateLine = sigs?.state.value;
+            const liveLastSeen = sigs?.lastSeen.value;
+            let statusText = '미감지';
+            if (liveStateLine) {
+                if (liveStateLine.includes('present') || liveStateLine.includes('unlock')) {
+                    const rssiStr = (liveRssi != null && liveRssi !== 0) ? ` · RSSI ${liveRssi}` : '';
+                    let agoStr = '';
+                    if (liveLastSeen) {
+                        const sec = Math.floor((Date.now() - liveLastSeen) / 1000);
+                        if (sec >= 1) {
+                            agoStr = ` · ${sec}초 전`;
+                        }
+                    }
+                    statusText = `재실${rssiStr}${agoStr}`;
+                } else if (liveStateLine.includes('detecting')) {
+                    statusText = '감지 중';
+                }
+            }
+
+            function onSave() {
+                if (!mac) {
+                    return;
+                }
+                saveM.mutate({
+                    mac,
+                    alias: aliasSig.value.trim(),
+                    rssi: rssiSig.value,
+                    timeout: timeoutSig.value,
+                    win: winSig.value,
+                    count: countSig.value,
+                });
+            }
+
+            function onDelete() {
+                if (!mac) {
+                    return;
+                }
+                if (!confirm(`${mac} 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.`)) {
+                    return;
+                }
+                deleteM.mutate(mac, {
+                    onSuccess: () => {
+                        /* signal Map 즉시 비움 — query invalidate 비동기 race로 카드가
+                         * 잠깐 남는 현상 방지. 모달은 짧은 딜레이 후 닫음 (status 노출). */
+                        state.deleteDevice(mac);
+                        setTimeout(onClose, 300);
+                    },
+                });
+            }
+
+            return html`
+                <dialog ref=${dialogRef} class="modal"
+                        onClick=${(e) => { if (e.target === dialogRef.current) { onClose(); } }}
+                        onCancel=${(e) => { e.preventDefault(); onClose(); }}>
+                    <div class="modal-head">
+                        <span class="modal-title">${device?.alias || mac || '기기 상세'}</span>
+                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-status-text">${statusText}</div>
+
+                        <label>별명</label>
+                        <input type="text" maxlength="31"
+                               value=${aliasSig.value}
+                               onInput=${(e) => { aliasSig.value = e.target.value; }}/>
+
+                        <div class="section-title" style="margin-top:18px;">진입 감지</div>
+                        <div class="hint">윈도우 내 RSSI 조건을 충족하는 관측이 N회 이상이면 재실로 판정합니다.</div>
+                        <label>RSSI 임계값 (dBm)</label>
+                        <input type="number" min="-100" max="0"
+                               value=${rssiSig.value}
+                               onInput=${(e) => { rssiSig.value = e.target.value; }}/>
+                        <label>윈도우 (ms)</label>
+                        <input type="number" min="1000" max="30000" step="1000"
+                               value=${winSig.value}
+                               onInput=${(e) => { winSig.value = e.target.value; }}/>
+                        <label>최소 관측 수</label>
+                        <input type="number" min="1" max="10"
+                               value=${countSig.value}
+                               onInput=${(e) => { countSig.value = e.target.value; }}/>
+
+                        <div class="section-title" style="margin-top:18px;">퇴실 감지</div>
+                        <div class="hint">신호 없이 이 시간이 지나면 퇴실로 전환됩니다.</div>
+                        <label>타임아웃 (ms)</label>
+                        <input type="number" min="1000" max="60000" step="1000"
+                               value=${timeoutSig.value}
+                               onInput=${(e) => { timeoutSig.value = e.target.value; }}/>
+                    </div>
+                    <div class="modal-foot">
+                        <${StatusLine} mutation=${saveM} okMsg="저장됨!"/>
+                        <${StatusLine} mutation=${deleteM} okMsg="삭제됨"/>
+                        <button class="btn btn-blue" onClick=${onSave}>저장</button>
+                        <button class="btn btn-red" onClick=${onDelete}>기기 삭제</button>
+                    </div>
+                </dialog>
+            `;
+        }
+
+        /**
+         * PairModal — 페어링 모드 진입 + 결과 표시.
+         *
+         * open=true 진입 시 pairing toggle을 한 번 호출 (펌웨어가 광고 활성화).
+         * close 시 다시 한 번 호출해서 토글 off. v1 syncPairingState의 retry/원하는
+         * 상태 추적 루프는 단순화 — 실패는 mutation.isError로 표면화하고 사용자가
+         * 다시 열도록 유도.
+         *
+         * pairingDone signal: WS에서 'paired' 또는 'BLE auth complete' 도착 시 true.
+         * UI는 spinner ↔ done 화면 전환만 담당.
+         */
+        function PairModal({ open, onClose }) {
+            const queryClient = useQueryClient();
+            const dialogRef = useRef(null);
+            const toggleM = mutations.usePairingToggle(queryClient);
+            const done = state.pairingDone.value;
+            const events = state.pairEvents.value;
+
+            useEffect(() => {
+                const d = dialogRef.current;
+                if (!d) {
+                    return;
+                }
+                if (open && !d.open) {
+                    state.resetPairing();
+                    d.showModal();
+                    document.body.style.overflow = 'hidden';
+                    toggleM.mutate();  // pairing on
+                } else if (!open && d.open) {
+                    d.close();
+                    document.body.style.overflow = '';
+                    toggleM.mutate();  // pairing off
+                    state.resetPairing();
+                }
+            }, [open]);
+
+            return html`
+                <dialog ref=${dialogRef} class="modal"
+                        onClick=${(e) => { if (e.target === dialogRef.current) { onClose(); } }}
+                        onCancel=${(e) => { e.preventDefault(); onClose(); }}>
+                    <div class="modal-head">
+                        <span class="modal-title">기기 페어링</span>
+                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        ${!done && html`
+                            <div id="pairInfo" class="hint">
+                                블루투스 설정에서 "Doorman"을 찾아 연결하세요.
+                            </div>
+                            <div class="pair-spinner">기기 연결 대기 중</div>
+                        `}
+                        ${done && html`
+                            <div>
+                                <span style="color:#16a34a; font-weight:600;">연결됨!</span>
+                                <div class="pair-events">
+                                    ${events.map((ev, i) => html`
+                                        <div class="pair-event" key=${i}>
+                                            <div class="pair-event-title">${ev.title}</div>
+                                            <div class="pair-event-meta">${ev.meta}</div>
+                                        </div>
+                                    `)}
+                                    ${events.length === 0 && html`<div class="pair-empty">이벤트 없음</div>`}
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </dialog>
+            `;
+        }
+
+        /**
+         * LogOverlay — WS 로그 라인 뷰어 (전체화면 오버레이).
+         *
+         * v1 마크업/CSS 그대로 (#logOverlay.open { display:flex }) 활용. dialog가 아닌
+         * div + class toggle인 이유는 v1 스타일과의 호환성. logBuffer signal을 .value로
+         * 구독하여 새 라인 도착 시 자동 re-render.
+         *
+         * 태그 필터 자동 누적: 라인이 도착할 때마다 정규식으로 태그 추출, 처음 본 태그는
+         * allChecked 기본값으로 추가. autoFollow는 useRef로 관리 (signal로 하면 매 스크롤마다
+         * re-render → 불필요).
+         */
+        function LogOverlay({ open, onClose }) {
+            const overlayRef = useRef(null);
+            const areaRef = useRef(null);
+            const textFilter = useSignal('');
+            const allChecked = useSignal(true);
+            const tagState = useSignal({});
+            const autoFollow = useRef(true);
+
+            const lines = state.logBuffer.value;
+            const wsStatus = state.wsStatus.value;
+
+            // 알려진 태그 누적
+            useEffect(() => {
+                const tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
+                const next = { ...tagState.value };
+                let changed = false;
+                for (const line of lines) {
+                    const m = line.match(tagRegex);
+                    if (m && !(m[1] in next)) {
+                        next[m[1]] = allChecked.value;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    tagState.value = next;
+                }
+            }, [lines]);
+
+            // body overflow 잠금/해제
+            useEffect(() => {
+                if (open) {
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    document.body.style.overflow = '';
+                }
+            }, [open]);
+
+            // ESC 키
+            useEffect(() => {
+                if (!open) {
+                    return;
+                }
+                const handler = (e) => {
+                    if (e.key === 'Escape') {
+                        onClose();
+                    }
+                };
+                window.addEventListener('keydown', handler);
+                return () => window.removeEventListener('keydown', handler);
+            }, [open]);
+
+            // autoFollow 자동 스크롤
+            useEffect(() => {
+                const area = areaRef.current;
+                if (area && autoFollow.current) {
+                    area.scrollTop = area.scrollHeight;
+                }
+            }, [lines.length]);
+
+            function onScroll() {
+                const a = areaRef.current;
+                if (!a) {
+                    return;
+                }
+                autoFollow.current = (a.scrollHeight - a.scrollTop - a.clientHeight) < 50;
+            }
+
+            function toggleAll(checked) {
+                allChecked.value = checked;
+                const next = {};
+                for (const t of Object.keys(tagState.value)) {
+                    next[t] = checked;
+                }
+                tagState.value = next;
+            }
+
+            function toggleTag(tag, checked) {
+                const next = { ...tagState.value, [tag]: checked };
+                tagState.value = next;
+                const allOn = Object.values(next).every((v) => v);
+                allChecked.value = allOn;
+            }
+
+            // 필터링
+            const tf = textFilter.value.toLowerCase();
+            const filtered = lines.filter((line) => {
+                const m = line.match(/\) ([a-zA-Z_][a-zA-Z0-9_]*):/);
+                if (m && tagState.value[m[1]] === false) {
+                    return false;
+                }
+                if (tf && line.toLowerCase().indexOf(tf) === -1) {
+                    return false;
+                }
+                return true;
+            });
+
+            const dotClass = wsStatus === 'open'
+                ? 'dot-ok'
+                : (wsStatus === 'closed' ? 'dot-err' : 'dot-wait');
+            const wsLabel = wsStatus === 'open'
+                ? '연결됨'
+                : (wsStatus === 'closed' ? '연결 끊김' : '연결 중...');
+
+            return html`
+                <div id="logOverlay" ref=${overlayRef} class=${open ? 'open' : ''}>
+                    <div class="log-overlay-head">
+                        <span class="ws-label">
+                            <span class=${'ws-dot ' + dotClass}></span>
+                            <span>${wsLabel}</span>
+                        </span>
+                        <button class="log-close-btn" onClick=${onClose}>닫기</button>
+                    </div>
+                    <div id="tagFilters">
+                        <label><input type="checkbox" checked=${allChecked.value}
+                                      onChange=${(e) => toggleAll(e.target.checked)}/> All</label>
+                        ${Object.keys(tagState.value).sort().map((t) => html`
+                            <label key=${t}><input type="checkbox" data-tag=${t}
+                                                   checked=${tagState.value[t]}
+                                                   onChange=${(e) => toggleTag(t, e.target.checked)}/> ${t}</label>
+                        `)}
+                    </div>
+                    <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)"
+                           value=${textFilter.value}
+                           onInput=${(e) => { textFilter.value = e.target.value; }}/>
+                    <div id="logArea" ref=${areaRef} onScroll=${onScroll}>${filtered.join('\n')}</div>
+                </div>
+            `;
+        }
+
+        /**
+         * App — 쿼리 의존성 체인을 관리하는 루트.
+         *
+         * info 도착 → enabled 토글 → 나머지 4개 쿼리 fire.
+         * wsToken 도착 → ws.connect (cleanup에서 disconnect, epoch 증가로 race 방지).
+         * devices 도착 → 응답에 없는 mac은 signal Map에서 정리.
+         */
+        function App() {
+            const queryClient = useQueryClient();
+
+            const info = queries.useInfo();
+            const enabled = !!info.data;
+            const devices = queries.useDevices(enabled);
+            const autoUnlock = queries.useAutoUnlock(enabled);
+            const wsToken = queries.useWsToken(enabled);
+
+            useEffect(() => {
+                if (!wsToken.data) {
+                    return;
+                }
+                ws.connect(wsToken.data, queryClient);
+                return () => ws.disconnect();
+            }, [wsToken.data]);
+
+            useEffect(() => {
+                if (!devices.data) {
+                    return;
+                }
+                const list = devices.data.devices ?? devices.data ?? [];
+                const respMacs = new Set(list.map((d) => d.mac));
+                for (const known of state.knownMacs()) {
+                    if (!respMacs.has(known)) {
+                        state.deleteDevice(known);
+                    }
+                }
+            }, [devices.data]);
+
+            const currentTab = useSignal('main');
+            const detailMac = useSignal(null);
+            const pairOpen = useSignal(false);
+            const logOpen = useSignal(false);
+
+            if (info.isPending) {
+                return html`<div style="padding:2rem">로딩…</div>`;
+            }
+            if (info.isError) {
+                return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
+            }
+
+            const devList = devices.data?.devices ?? devices.data ?? [];
+            const detailDevice = detailMac.value
+                ? devList.find((d) => d.mac === detailMac.value)
+                : null;
+
+            return html`
+                <${Header} info=${info.data}
+                           onPair=${() => { pairOpen.value = true; }}
+                           onLog=${() => { logOpen.value = true; }}/>
+                <${SafeBanner} safeMode=${info.data.safe_mode}/>
+                <${Tabs} current=${currentTab}/>
+                ${currentTab.value === 'main'
+                    ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}
+                                       onCardClick=${(mac) => { detailMac.value = mac; }}/>`
+                    : html`<${ManageTab}/>`}
+                <${DetailModal} mac=${detailMac.value} device=${detailDevice}
+                                onClose=${() => { detailMac.value = null; }}/>
+                <${PairModal} open=${pairOpen.value}
+                              onClose=${() => { pairOpen.value = false; }}/>
+                <${LogOverlay} open=${logOpen.value}
+                               onClose=${() => { logOpen.value = false; }}/>
+            `;
+        }
+        return { App };
+    })();
+
+    render(html`
+        <${QueryClientProvider} client=${queryClient}>
+            <${components.App}/>
+        </${QueryClientProvider}>
+    `, document.getElementById('app'));
 </script>
 </body>
 </html>
