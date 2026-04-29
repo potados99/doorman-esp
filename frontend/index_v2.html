@@ -367,6 +367,24 @@
 </head>
 <body>
 <div id="app"></div>
+<!--
+  Import map: esm.sh가 의존성마다 다른 preact 인스턴스를 가져올 수 있어
+  (signals 자동 트래킹은 동일 preact options 객체에 hook을 등록), 모든
+  preact import를 단일 URL로 핀해 인스턴스를 통일합니다. signals와 query
+  가 같은 hook 트리에 들어가야 자동 구독이 작동.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "preact": "https://esm.sh/preact@10.29.1",
+    "preact/": "https://esm.sh/preact@10.29.1/",
+    "@preact/signals": "https://esm.sh/@preact/signals@2?deps=preact@10.29.1",
+    "@preact/signals-core": "https://esm.sh/@preact/signals-core@1?deps=preact@10.29.1",
+    "htm": "https://esm.sh/htm@3",
+    "@tanstack/preact-query": "https://esm.sh/@tanstack/preact-query@5?deps=preact@10.29.1"
+  }
+}
+</script>
 <script type="module">
     /**
      * doorman-esp 프론트엔드 v2 — Phase 2 스캐폴드.
@@ -381,15 +399,17 @@
      * 표면화시켜 브라우저 dialog가 처리하도록 합니다.
      */
 
-    import { h, render } from 'https://esm.sh/preact@10';
-    import { signal, computed, effect, useSignal, useComputed } from 'https://esm.sh/@preact/signals@2';
-    import htm from 'https://esm.sh/htm@3';
+    import { h, render } from 'preact';
+    import { useEffect } from 'preact/hooks';
+    import { signal, computed, effect, useSignal, useComputed } from '@preact/signals';
+    import htm from 'htm';
     import {
         QueryClient,
         QueryClientProvider,
         useQuery,
         useMutation,
-    } from 'https://esm.sh/@tanstack/preact-query@5';
+        useQueryClient,
+    } from '@tanstack/preact-query';
 
     const html = htm.bind(h);
     const queryClient = new QueryClient({
@@ -415,6 +435,206 @@
         return { fetchJSON, fetchText };
     })();
 
+    /**
+     * state 모듈 — 컴포넌트 외부에서 생성되는 전역 signal 보관소.
+     *
+     * Preact signals는 Map 같은 비-React 컨테이너에 자유롭게 들어갑니다.
+     * 디바이스별 signal은 lazy create — WS에서 처음 본 mac이라도 그 자리에서 만듭니다.
+     * devices 쿼리 응답이 도착하면 effect에서 응답에 없는 mac은 reconcile로 정리.
+     */
+    const state = (() => {
+        // mac → { rssi: signal<number|null>, state: signal<string|null>, lastSeen: signal<number> }
+        const deviceSignals = new Map();
+
+        function getDeviceSignals(mac) {
+            let s = deviceSignals.get(mac);
+            if (!s) {
+                s = {
+                    rssi: signal(null),
+                    state: signal(null),
+                    lastSeen: signal(0),
+                };
+                deviceSignals.set(mac, s);
+            }
+            return s;
+        }
+
+        function deleteDevice(mac) {
+            deviceSignals.delete(mac);
+        }
+
+        function knownMacs() {
+            return Array.from(deviceSignals.keys());
+        }
+
+        /** WS 연결 상태: 'connecting' | 'open' | 'closed' */
+        const wsStatus = signal('closed');
+
+        /** 누적 페어링 이벤트 (최신이 앞) */
+        const pairEvents = signal([]);  // [{title, meta, time}]
+
+        function addPairEvent(title, meta) {
+            pairEvents.value = [{ title, meta, time: Date.now() }, ...pairEvents.value].slice(0, 50);
+        }
+
+        /** 로그 라인 버퍼 (오래된 것이 앞) */
+        const MAX_LOG_LINES = 500;
+        const logBuffer = signal([]);
+
+        function appendLog(line) {
+            const next = logBuffer.value.length >= MAX_LOG_LINES
+                ? [...logBuffer.value.slice(1), line]
+                : [...logBuffer.value, line];
+            logBuffer.value = next;
+        }
+
+        /** monitor 라인에서 추출되는 시스템 통계 */
+        const sysStats = signal(null);  // { ramFree, ramTotal, psramFree, psramTotal, tasks }
+
+        return {
+            getDeviceSignals, deleteDevice, knownMacs,
+            wsStatus, pairEvents, addPairEvent,
+            logBuffer, appendLog,
+            sysStats,
+        };
+    })();
+
+    /**
+     * ws 모듈 — WebSocket 연결 매니저 + line accumulator + 메시지 라우터.
+     *
+     * 외부에서 wsToken과 queryClient를 주입받아 connect. 책임 분리:
+     * - 라인 분리(accumulator): \n 경계로 안전하게, 미완 라인은 buffer에 보관.
+     * - 라우팅: 6개 정규식 중 첫 매칭만 액션 (frontend/index.html:1161-1185 동작 보존).
+     * - 모든 라인은 무조건 logBuffer에 push (vanilla 동작 보존).
+     * - epoch race guard: 재연결 시 진행 중인 핸들러 무력화.
+     * - 지수 backoff: 2s → 4s → ... → 30s 캡.
+     */
+    const ws = (() => {
+        let socket = null;
+        let lineBuf = '';
+        let epoch = 0;
+        let reconnectDelay = 2000;
+        let pendingReconnect = null;
+
+        const PATTERNS = [
+            // bt: <MAC> rssi=<N>
+            { re: /bt: ([0-9A-F:]{17}) rssi=(-?\d+)/, action: (m) => {
+                const sigs = state.getDeviceSignals(m[1]);
+                sigs.rssi.value = parseInt(m[2], 10);
+                sigs.lastSeen.value = Date.now();
+            }},
+            // bt: <MAC> paired <name>
+            { re: /bt: ([0-9A-F:]{17}) paired (.+)/, action: (m, _line, queryClient) => {
+                state.addPairEvent(`페어링 완료: ${m[2]}`, `MAC ${m[1]}`);
+                queryClient.invalidateQueries({ queryKey: ['devices'] });
+            }},
+            // BLE auth complete
+            { re: /BLE auth complete: success=yes addr=([0-9A-F:]{17})/, action: (m, _line, queryClient) => {
+                state.addPairEvent('BLE 인증 완료', `MAC ${m[1]}`);
+                queryClient.invalidateQueries({ queryKey: ['devices'] });
+            }},
+            // sm: <MAC> <state>
+            { re: /sm: ([0-9A-F:]{17}) (detecting|present|absent|unlock)/, action: (m, line) => {
+                const sigs = state.getDeviceSignals(m[1]);
+                sigs.state.value = line.trim();  // 전체 라인 보관 (detecting X/Y 형태 포함)
+            }},
+            // monitor: ram=A/B psram=C/D tasks=N
+            { re: /monitor: ram=(\d+)\/(\d+) psram=(\d+)\/(\d+) tasks=(\d+)/, action: (m) => {
+                state.sysStats.value = {
+                    ramFree: parseInt(m[1], 10), ramTotal: parseInt(m[2], 10),
+                    psramFree: parseInt(m[3], 10), psramTotal: parseInt(m[4], 10),
+                    tasks: parseInt(m[5], 10),
+                };
+            }},
+        ];
+
+        function processLine(line, queryClient) {
+            if (!line) {
+                return;
+            }
+            state.appendLog(line);
+            for (const { re, action } of PATTERNS) {
+                const m = line.match(re);
+                if (m) {
+                    action(m, line, queryClient);
+                    break;  // 첫 매칭만
+                }
+            }
+        }
+
+        function connect(token, queryClient) {
+            if (socket) {
+                try { socket.close(); } catch (e) {}
+                socket = null;
+            }
+            if (pendingReconnect) {
+                clearTimeout(pendingReconnect);
+                pendingReconnect = null;
+            }
+            if (!token) {
+                state.wsStatus.value = 'closed';
+                return;
+            }
+
+            const currentEpoch = ++epoch;
+            state.wsStatus.value = 'connecting';
+            const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const url = `${scheme}${location.host}/ws?token=${encodeURIComponent(token)}`;
+            socket = new WebSocket(url);
+            lineBuf = '';
+
+            socket.onopen = () => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                state.wsStatus.value = 'open';
+                reconnectDelay = 2000;
+            };
+
+            socket.onmessage = (evt) => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                const data = typeof evt.data === 'string' ? evt.data : '';
+                const merged = lineBuf + data;
+                const parts = merged.split('\n');
+                lineBuf = parts.pop();  // 마지막 (미완 가능)
+                for (const p of parts) {
+                    processLine(p, queryClient);
+                }
+            };
+
+            socket.onclose = () => {
+                if (currentEpoch !== epoch) {
+                    return;
+                }
+                state.wsStatus.value = 'closed';
+                const d = reconnectDelay;
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                pendingReconnect = setTimeout(() => connect(token, queryClient), d);
+            };
+
+            socket.onerror = () => {
+                // onclose가 이어짐 — 별도 처리 불필요
+            };
+        }
+
+        function disconnect() {
+            epoch++;  // 진행 중인 핸들러 무력화
+            if (pendingReconnect) {
+                clearTimeout(pendingReconnect);
+                pendingReconnect = null;
+            }
+            if (socket) {
+                try { socket.close(); } catch (e) {}
+                socket = null;
+            }
+            state.wsStatus.value = 'closed';
+        }
+
+        return { connect, disconnect };
+    })();
+
     const queries = (() => {
         function useInfo() {
             return useQuery({
@@ -422,28 +642,102 @@
                 queryFn: () => api.fetchJSON('/api/info'),
             });
         }
-        return { useInfo };
+        function useDevices(enabled) {
+            return useQuery({
+                queryKey: ['devices'],
+                queryFn: () => api.fetchJSON('/api/devices'),
+                enabled,
+            });
+        }
+        function useAutoUnlock(enabled) {
+            return useQuery({
+                queryKey: ['autoUnlock'],
+                queryFn: () => api.fetchText('/api/auto-unlock/status'),
+                enabled,
+            });
+        }
+        function useWsToken(enabled) {
+            return useQuery({
+                queryKey: ['wsToken'],
+                queryFn: () => api.fetchText('/api/ws-token'),
+                enabled,
+            });
+        }
+        function usePairingStatus(enabled) {
+            return useQuery({
+                queryKey: ['pairingStatus'],
+                queryFn: () => api.fetchText('/api/pairing/status'),
+                enabled,
+            });
+        }
+        return { useInfo, useDevices, useAutoUnlock, useWsToken, usePairingStatus };
     })();
 
     const components = (() => {
+        /**
+         * App — 쿼리 의존성 체인을 관리하는 루트.
+         *
+         * info 도착 → enabled 토글 → 나머지 4개 쿼리 fire.
+         * wsToken 도착 → ws.connect (cleanup에서 disconnect, epoch 증가로 race 방지).
+         * devices 도착 → 응답에 없는 mac은 signal Map에서 정리.
+         */
         function App() {
+            const queryClient = useQueryClient();
+
             const info = queries.useInfo();
+            const enabled = !!info.data;
+            const devices = queries.useDevices(enabled);
+            const autoUnlock = queries.useAutoUnlock(enabled);
+            const wsToken = queries.useWsToken(enabled);
+            const pairing = queries.usePairingStatus(enabled);
+
+            useEffect(() => {
+                if (!wsToken.data) {
+                    return;
+                }
+                ws.connect(wsToken.data, queryClient);
+                return () => ws.disconnect();
+            }, [wsToken.data]);
+
+            useEffect(() => {
+                if (!devices.data) {
+                    return;
+                }
+                const list = devices.data.devices ?? devices.data ?? [];
+                const respMacs = new Set(list.map((d) => d.mac));
+                for (const known of state.knownMacs()) {
+                    if (!respMacs.has(known)) {
+                        state.deleteDevice(known);
+                    }
+                }
+            }, [devices.data]);
+
             if (info.isPending) {
                 return html`<div style="padding:2rem">로딩…</div>`;
             }
             if (info.isError) {
                 return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
             }
+
+            // Phase 3 검증용 표시 (Phase 4 이후 진짜 UI로 대체)
+            const wsStatusVal = state.wsStatus.value;
+            const logCount = state.logBuffer.value.length;
+            const macCount = devices.data?.devices?.length ?? devices.data?.length ?? 0;
+            const stats = state.sysStats.value;
+
             return html`
-                <div style="padding:2rem">
-                    <h1>Doorman v2</h1>
-                    <p style="color:#3a3">✓ authenticated</p>
-                    <p style="color:#666;font-size:0.85em">
-                        version: ${info.data.version} · safe_mode: ${String(info.data.safe_mode)}
-                    </p>
-                    <p style="color:#999;font-size:0.75em">
-                        Phase 2 스캐폴드 — 후속 phase에서 컴포넌트 채워짐
-                    </p>
+                <div style="padding:2rem;font-family:system-ui">
+                    <h1>Doorman v2 — Phase 3</h1>
+                    <p>info: ${info.data.version} · safe_mode: ${String(info.data.safe_mode)}</p>
+                    <p>autoUnlock: ${autoUnlock.data ?? '...'} · pairing: ${pairing.data ?? '...'}</p>
+                    <p>wsToken: ${wsToken.data ? wsToken.data.slice(0, 8) + '...' : '대기'}</p>
+                    <p>WS status: <b>${wsStatusVal}</b></p>
+                    <p>devices: ${macCount}대 · log: ${logCount}줄</p>
+                    <p>sysStats: ${stats ? `ram ${stats.ramFree}/${stats.ramTotal}` : '-'}</p>
+                    <details>
+                        <summary>최근 로그 5줄</summary>
+                        <pre style="font-size:0.7em;background:#f5f5f5;padding:1em">${state.logBuffer.value.slice(-5).join('\n')}</pre>
+                    </details>
                 </div>
             `;
         }
