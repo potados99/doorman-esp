@@ -187,16 +187,17 @@
             font-size: 0.88rem; color: #9ca3af; line-height: 1.8;
         }
 
-        /* ── Skeleton (loading placeholder) ── */
-        .status-card.skeleton {
-            color: #d1d5db;
-            border-left-color: #e5e7eb;
-            cursor: default;
-            animation: skeletonPulse 1.2s ease-in-out infinite;
+        /* ── Top progress bar (any in-flight fetch) ── */
+        #topProgress {
+            position: fixed; top: 0; left: 0; right: 0;
+            height: 2px; z-index: 9999; pointer-events: none;
+            background: linear-gradient(90deg, transparent 0%, #2563eb 50%, transparent 100%);
+            background-size: 30% 100%; background-repeat: no-repeat;
+            animation: topProgressSlide 1s linear infinite;
         }
-        @keyframes skeletonPulse {
-            0%, 100% { opacity: 0.55; }
-            50%      { opacity: 0.85; }
+        @keyframes topProgressSlide {
+            0%   { background-position: -30% 0; }
+            100% { background-position: 130% 0; }
         }
 
         /* ── Modal (dialog) ── */
@@ -421,6 +422,8 @@
         useQuery,
         useMutation,
         useQueryClient,
+        useIsFetching,
+        useIsMutating,
     } from '@tanstack/preact-query';
 
     const html = htm.bind(h);
@@ -1106,21 +1109,10 @@
             `;
         }
 
-        /** DeviceCards — query 객체를 받아 isPending/empty/list 3분기. */
+        /** DeviceCards — pending 동안은 빈 영역 (전역 topProgress가 신호). */
         function DeviceCards({ devicesQuery, onCardClick }) {
             if (devicesQuery.isPending) {
-                return html`
-                    <div class="device-cards" id="deviceCards">
-                        ${[0, 1].map((i) => html`
-                            <div class="status-card skeleton" key=${i}>
-                                <div class="card-header">
-                                    <span class="card-alias">···</span>
-                                </div>
-                                <div class="card-status">불러오는 중</div>
-                            </div>
-                        `)}
-                    </div>
-                `;
+                return html`<div class="device-cards" id="deviceCards"></div>`;
             }
             const list = devicesQuery.data?.devices ?? devicesQuery.data ?? [];
             if (list.length === 0) {
@@ -1719,6 +1711,8 @@
             const detailMac = useSignal(null);
             const pairOpen = useSignal(false);
             const logOpen = useSignal(false);
+            const fetching = useIsFetching();
+            const mutating = useIsMutating();
 
             if (info.isError) {
                 return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
@@ -1730,6 +1724,7 @@
                 : null;
 
             return html`
+                ${(fetching > 0 || mutating > 0) && html`<div id="topProgress"></div>`}
                 <${Header} info=${info.data}
                            onPair=${() => { pairOpen.value = true; }}
                            onLog=${() => { logOpen.value = true; }}/>
