@@ -1,8 +1,9 @@
 ---
 title: "feat: 프론트엔드 Preact + TanStack Query 마이그레이션"
 type: feat
-status: active
+status: completed
 date: 2026-04-29
+completed: 2026-04-29
 brainstorm: docs/brainstorms/2026-04-29-frontend-preact-tanstack-migration-brainstorm.md
 ---
 
