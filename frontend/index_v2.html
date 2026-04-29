@@ -824,10 +824,46 @@
             });
         }
 
+        /**
+         * useOtaUpload — XHR 기반 펌웨어 업로드 + progress signal.
+         *
+         * fetch는 업로드 진행률 이벤트가 없어 XHR로 직접 구현. progress signal은
+         * mutation 객체에 attach해서 컴포넌트가 ota.progress.value로 구독.
+         * 이 함수 자체는 hook을 호출하므로 컴포넌트 안에서만 호출해야 함.
+         */
+        function useOtaUpload() {
+            const progress = useSignal(0);
+            const m = useMutation({
+                mutationFn: (file) => new Promise((resolve, reject) => {
+                    progress.value = 0;
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/firmware/upload');
+                    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            progress.value = Math.round(e.loaded / e.total * 100);
+                        }
+                    };
+                    xhr.onload = () => {
+                        if (xhr.status === 200) {
+                            progress.value = 100;
+                            resolve(xhr.responseText);
+                        } else {
+                            reject(new Error(xhr.responseText || String(xhr.status)));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('연결 끊김'));
+                    xhr.send(file);
+                }),
+            });
+            return { ...m, progress };
+        }
+
         return {
             useDoorOpen, useAutoUnlockToggle,
             useSlackUpdate, useAuthUpdate, useWifiUpdate, useReboot,
             useDeviceConfigSave, useDeviceDelete, usePairingToggle,
+            useOtaUpload,
         };
     })();
 
@@ -881,7 +917,7 @@
          * sysStats는 signal이라 .value 접근으로 자동 구독. monitor 라인 도착 시
          * 이 컴포넌트만 re-render.
          */
-        function Header({ info, onPair }) {
+        function Header({ info, onPair, onLog }) {
             const stats = state.sysStats.value;
             const statsText = stats
                 ? `RAM ${Math.round(stats.ramFree / 1024)}/${Math.round(stats.ramTotal / 1024)}KB`
@@ -893,7 +929,7 @@
                     <h1>Doorman</h1>
                     <div class="hdr-actions">
                         <button class="icon-btn" onClick=${onPair}>+ 기기</button>
-                        <button class="icon-btn" onClick=${() => console.log('TODO: log overlay (Phase 7)')}>📋</button>
+                        <button class="icon-btn" onClick=${onLog}>📋</button>
                     </div>
                 </div>
                 <div class="hdr-meta">
@@ -1108,16 +1144,45 @@
         }
 
         /**
-         * FirmwareSection — Phase 7 OTA 구현 전 disabled placeholder.
+         * FirmwareSection — OTA 펌웨어 업로드.
          *
-         * 마크업/스타일은 v1과 동일하게 유지하되 input/button만 disabled.
+         * useOtaUpload는 내부에서 useSignal/useMutation을 호출하므로 컴포넌트 안에서만
+         * 호출 가능. progress signal은 mutation 객체에 attach되어 ota.progress.value로 접근.
+         * isSuccess 후 자동 reload는 안 함 (브레인스토밍 결정 #3) — 사용자가 수동 새로고침.
          */
         function FirmwareSection() {
+            const fileSignal = useSignal(null);
+            const ota = mutations.useOtaUpload();
+
+            function onFileChange(e) {
+                fileSignal.value = e.target.files[0] || null;
+            }
+
+            function onUpload() {
+                if (!fileSignal.value) {
+                    return;
+                }
+                ota.mutate(fileSignal.value);
+            }
+
+            const showProgress = ota.isPending || ota.isSuccess;
+            const showHint = !fileSignal.value && !ota.isPending && !ota.isSuccess && !ota.isError;
+
             return html`
                 <div class="card" style="border-color:#fecaca;">
                     <div class="card-label">펌웨어 업데이트</div>
-                    <input type="file" accept=".bin,application/octet-stream" disabled/>
-                    <button class="btn btn-red" disabled>업로드 및 재부팅 (Phase 7)</button>
+                    <input type="file" accept=".bin,application/octet-stream"
+                           onChange=${onFileChange}/>
+                    <button class="btn btn-red" onClick=${onUpload}
+                            disabled=${!fileSignal.value || ota.isPending}>업로드 및 재부팅</button>
+                    ${showProgress && html`
+                        <progress value=${ota.progress.value} max="100"
+                                  style="display:block;margin-top:8px;width:100%"></progress>
+                    `}
+                    ${ota.isPending && html`<div class="status run" style="display:block">업로드 중... ${ota.progress.value}%</div>`}
+                    ${ota.isSuccess && html`<div class="status ok" style="display:block">✓ 업로드 완료. 재부팅 중...</div>`}
+                    ${ota.isError && html`<div class="status err" style="display:block">✗ 실패: ${ota.error?.message ?? '오류'}</div>`}
+                    ${showHint && html`<div class="hint" style="margin-top:6px;">.bin 파일을 선택하세요.</div>`}
                 </div>
             `;
         }
@@ -1430,6 +1495,146 @@
         }
 
         /**
+         * LogOverlay — WS 로그 라인 뷰어 (전체화면 오버레이).
+         *
+         * v1 마크업/CSS 그대로 (#logOverlay.open { display:flex }) 활용. dialog가 아닌
+         * div + class toggle인 이유는 v1 스타일과의 호환성. logBuffer signal을 .value로
+         * 구독하여 새 라인 도착 시 자동 re-render.
+         *
+         * 태그 필터 자동 누적: 라인이 도착할 때마다 정규식으로 태그 추출, 처음 본 태그는
+         * allChecked 기본값으로 추가. autoFollow는 useRef로 관리 (signal로 하면 매 스크롤마다
+         * re-render → 불필요).
+         */
+        function LogOverlay({ open, onClose }) {
+            const overlayRef = useRef(null);
+            const areaRef = useRef(null);
+            const textFilter = useSignal('');
+            const allChecked = useSignal(true);
+            const tagState = useSignal({});
+            const autoFollow = useRef(true);
+
+            const lines = state.logBuffer.value;
+            const wsStatus = state.wsStatus.value;
+
+            // 알려진 태그 누적
+            useEffect(() => {
+                const tagRegex = /\) ([a-zA-Z_][a-zA-Z0-9_]*):/;
+                const next = { ...tagState.value };
+                let changed = false;
+                for (const line of lines) {
+                    const m = line.match(tagRegex);
+                    if (m && !(m[1] in next)) {
+                        next[m[1]] = allChecked.value;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    tagState.value = next;
+                }
+            }, [lines]);
+
+            // body overflow 잠금/해제
+            useEffect(() => {
+                if (open) {
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    document.body.style.overflow = '';
+                }
+            }, [open]);
+
+            // ESC 키
+            useEffect(() => {
+                if (!open) {
+                    return;
+                }
+                const handler = (e) => {
+                    if (e.key === 'Escape') {
+                        onClose();
+                    }
+                };
+                window.addEventListener('keydown', handler);
+                return () => window.removeEventListener('keydown', handler);
+            }, [open]);
+
+            // autoFollow 자동 스크롤
+            useEffect(() => {
+                const area = areaRef.current;
+                if (area && autoFollow.current) {
+                    area.scrollTop = area.scrollHeight;
+                }
+            }, [lines.length]);
+
+            function onScroll() {
+                const a = areaRef.current;
+                if (!a) {
+                    return;
+                }
+                autoFollow.current = (a.scrollHeight - a.scrollTop - a.clientHeight) < 50;
+            }
+
+            function toggleAll(checked) {
+                allChecked.value = checked;
+                const next = {};
+                for (const t of Object.keys(tagState.value)) {
+                    next[t] = checked;
+                }
+                tagState.value = next;
+            }
+
+            function toggleTag(tag, checked) {
+                const next = { ...tagState.value, [tag]: checked };
+                tagState.value = next;
+                const allOn = Object.values(next).every((v) => v);
+                allChecked.value = allOn;
+            }
+
+            // 필터링
+            const tf = textFilter.value.toLowerCase();
+            const filtered = lines.filter((line) => {
+                const m = line.match(/\) ([a-zA-Z_][a-zA-Z0-9_]*):/);
+                if (m && tagState.value[m[1]] === false) {
+                    return false;
+                }
+                if (tf && line.toLowerCase().indexOf(tf) === -1) {
+                    return false;
+                }
+                return true;
+            });
+
+            const dotClass = wsStatus === 'open'
+                ? 'dot-ok'
+                : (wsStatus === 'closed' ? 'dot-err' : 'dot-wait');
+            const wsLabel = wsStatus === 'open'
+                ? '연결됨'
+                : (wsStatus === 'closed' ? '연결 끊김' : '연결 중...');
+
+            return html`
+                <div id="logOverlay" ref=${overlayRef} class=${open ? 'open' : ''}>
+                    <div class="log-overlay-head">
+                        <span class="ws-label">
+                            <span class=${'ws-dot ' + dotClass}></span>
+                            <span>${wsLabel}</span>
+                        </span>
+                        <button class="log-close-btn" onClick=${onClose}>닫기</button>
+                    </div>
+                    <div id="tagFilters">
+                        <label><input type="checkbox" checked=${allChecked.value}
+                                      onChange=${(e) => toggleAll(e.target.checked)}/> All</label>
+                        ${Object.keys(tagState.value).sort().map((t) => html`
+                            <label key=${t}><input type="checkbox" data-tag=${t}
+                                                   checked=${tagState.value[t]}
+                                                   onChange=${(e) => toggleTag(t, e.target.checked)}/> ${t}</label>
+                        `)}
+                    </div>
+                    <input type="text" id="textFilter" placeholder="필터 (MAC, 태그, 키워드)"
+                           value=${textFilter.value}
+                           onInput=${(e) => { textFilter.value = e.target.value; }}/>
+                    <div id="logArea" ref=${areaRef} onScroll=${onScroll}>${filtered.join('\n')}</div>
+                </div>
+            `;
+        }
+
+        /**
          * App — 쿼리 의존성 체인을 관리하는 루트.
          *
          * info 도착 → enabled 토글 → 나머지 4개 쿼리 fire.
@@ -1469,6 +1674,7 @@
             const currentTab = useSignal('main');
             const detailMac = useSignal(null);
             const pairOpen = useSignal(false);
+            const logOpen = useSignal(false);
 
             if (info.isPending) {
                 return html`<div style="padding:2rem">로딩…</div>`;
@@ -1483,7 +1689,9 @@
                 : null;
 
             return html`
-                <${Header} info=${info.data} onPair=${() => { pairOpen.value = true; }}/>
+                <${Header} info=${info.data}
+                           onPair=${() => { pairOpen.value = true; }}
+                           onLog=${() => { logOpen.value = true; }}/>
                 <${SafeBanner} safeMode=${info.data.safe_mode}/>
                 <${Tabs} current=${currentTab}/>
                 ${currentTab.value === 'main'
@@ -1494,6 +1702,8 @@
                                 onClose=${() => { detailMac.value = null; }}/>
                 <${PairModal} open=${pairOpen.value}
                               onClose=${() => { pairOpen.value = false; }}/>
+                <${LogOverlay} open=${logOpen.value}
+                               onClose=${() => { logOpen.value = false; }}/>
             `;
         }
         return { App };
