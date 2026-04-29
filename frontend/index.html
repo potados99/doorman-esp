@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Doorman</title>
     <style>
+        /*
+         * Color palette: Flat UI Colors — "American"
+         * https://flatuicolors.com/palette/us
+         *
+         * 의미 색(CTA, 상태, 위험, 경고)만 :root 변수로 통합.
+         * 회색/슬레이트 스케일은 Tailwind 표준을 그대로 사용 — palette엔 회색
+         * 단계가 부족해서 강제 매핑하면 부자연스러움.
+         */
+        :root {
+            --accent: #0984e3;            /* Electron Blue — CTA */
+            --accent-rgb: 9, 132, 227;
+            --accent-active: #0764b3;     /* darken (palette 외, active용) */
+            --status-present: #00b894;    /* Mint Leaf — 재실/연결됨 */
+            --status-present-rgb: 0, 184, 148;
+            --danger: #d63031;            /* Chi-Gong — destructive */
+            --danger-rgb: 214, 48, 49;
+            --warn: #e17055;              /* Orangeville — 경고/대기 */
+        }
         *:not(dialog) { margin: 0; padding: 0; box-sizing: border-box; }
         dialog { padding: 0; box-sizing: border-box; }
         html { scrollbar-gutter: stable; }
@@ -57,13 +75,13 @@
         .door-btn {
             display: block; width: 100%;
             padding: 16px;
-            background: #16a34a; color: #fff;
+            background: var(--accent); color: #fff;
             border: none; border-radius: 8px;
             font: inherit; font-size: 1.05rem; font-weight: 700;
             cursor: pointer;
             transition: background 0.12s;
         }
-        .door-btn:active { background: #15803d; }
+        .door-btn:active { background: var(--accent-active); }
 
         /* ── Toggle pill ── */
         .auto-row {
@@ -80,7 +98,7 @@
             transition: background 0.15s, color 0.15s;
         }
         .pill.off { background: #f3f4f6; color: #9ca3af; }
-        .pill.on { background: #16a34a; color: #fff; }
+        .pill.on { background: var(--accent); color: #fff; }
 
         /* ── Section ── */
         .section { margin-top: 24px; }
@@ -103,9 +121,9 @@
 
         /* ── Status ── */
         .status { margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 0.82rem; display: none; }
-        .ok { background: #ecfdf5; color: #065f46; }
-        .err { background: #fef2f2; color: #991b1b; }
-        .run { background: #eff6ff; color: #1e40af; }
+        .ok { background: rgba(var(--status-present-rgb), 0.1); color: var(--status-present); }
+        .err { background: rgba(var(--danger-rgb), 0.1); color: var(--danger); }
+        .run { background: rgba(var(--accent-rgb), 0.1); color: var(--accent); }
 
         /* ── Inputs ── */
         label { display: block; font-size: 0.78rem; font-weight: 500; color: #6b7280; margin: 10px 0 3px; }
@@ -115,68 +133,103 @@
             font: inherit; font-size: 0.88rem;
             background: #f9fafb; color: #111;
         }
-        input:focus { outline: none; border-color: #2563eb; }
+        input:focus { outline: none; border-color: var(--accent); }
         input[type="file"] { width: 100%; font-size: 0.82rem; margin-top: 4px; }
 
         /* ── Buttons ── */
         .btn {
             -webkit-appearance: none; appearance: none;
             display: block; width: 100%; padding: 10px;
-            border: none; border-radius: 6px;
+            background: transparent;
+            border: 1px solid;
+            border-radius: 6px;
             font: inherit; font-size: 0.88rem; font-weight: 600;
             cursor: pointer; margin-top: 10px;
-            transition: opacity 0.12s;
+            transition: background 0.12s, color 0.12s;
         }
         .btn:active { opacity: 0.7; }
-        .btn-blue { background: #2563eb; color: #fff; }
-        .btn-red { background: #dc2626; color: #fff; }
-        .btn-orange { background: #ea580c; color: #fff; }
-        .btn-green { background: #16a34a; color: #fff; }
-        button:disabled { opacity: 0.35; cursor: not-allowed; }
+        .btn-blue {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .btn-blue:hover { background: var(--accent); color: #fff; }
+        .btn-red {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+        .btn-red:hover { background: var(--danger); color: #fff; }
+        .btn-orange {
+            color: var(--warn);
+            border-color: var(--warn);
+        }
+        .btn-orange:hover { background: var(--warn); color: #fff; }
+        .btn-green {
+            color: var(--status-present);
+            border-color: var(--status-present);
+        }
+        .btn-green:hover { background: var(--status-present); color: #fff; }
+        button:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
         progress { width: 100%; height: 4px; margin-top: 8px; display: none; border-radius: 2px; }
         .hint { font-size: 0.75rem; color: #9ca3af; line-height: 1.45; margin-bottom: 6px; }
 
         /* ── Safe mode banner ── */
         .safe-banner {
-            background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px;
+            background: rgba(var(--danger-rgb), 0.08);
+            border: 1px solid rgba(var(--danger-rgb), 0.4);
+            border-radius: 6px;
             padding: 10px 12px; margin-bottom: 16px;
-            font-size: 0.82rem; color: #991b1b; line-height: 1.5;
+            font-size: 0.82rem; color: var(--danger); line-height: 1.5;
         }
 
         /* ── Device status cards ── */
         .device-cards { margin-top: 20px; }
         .status-card {
-            position: relative;
             border: 1px solid #e5e7eb;
-            border-left: 4px solid var(--status-color, #e5e7eb);
             border-radius: 8px;
             padding: 12px 14px;
             margin-bottom: 10px;
             cursor: pointer;
             transition: box-shadow 0.12s;
-            --ripple-color: var(--status-color, #e5e7eb);
+            animation: cardFadeIn 0.18s ease-out;
+        }
+        @keyframes cardFadeIn {
+            from { opacity: 0; transform: translateY(3px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
         .status-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
-        .status-card::after {
-            content: '';
-            position: absolute;
-            inset: -1px;
-            border-radius: inherit;
-            box-shadow: 0 0 0 0 var(--ripple-color);
-            pointer-events: none;
-            opacity: 0;
+
+        /* ── Status dot ── */
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #d1d5db;
+            margin-right: 8px;
+            flex-shrink: 0;
+            transition: background 0.2s;
+            vertical-align: middle;
         }
-        .status-card.burst::after {
-            animation: burstRipple 0.45s ease-out forwards;
+        .status-dot.present { background: var(--status-present); }
+        .status-dot.detecting {
+            background: var(--status-present);
+            animation: dotPulse 1.1s ease-in-out infinite;
         }
-        @keyframes burstRipple {
-            0%   { box-shadow: 0 0 0 0   var(--ripple-color); opacity: 0.7; }
-            100% { box-shadow: 0 0 0 14px var(--ripple-color); opacity: 0; }
+        .status-dot.burst {
+            animation: dotBurst 0.5s ease-out;
+        }
+        @keyframes dotPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(var(--status-present-rgb), 0.45); }
+            50%      { box-shadow: 0 0 0 6px rgba(var(--status-present-rgb), 0); }
+        }
+        @keyframes dotBurst {
+            0%   { box-shadow: 0 0 0 0 rgba(var(--status-present-rgb), 0.55); }
+            100% { box-shadow: 0 0 0 8px rgba(var(--status-present-rgb), 0); }
         }
         .card-header {
             display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 4px;
         }
+        .card-header-left { display: flex; align-items: center; min-width: 0; }
         .card-alias { font-size: 0.9rem; font-weight: 600; color: #111; }
         .card-mac { font-size: 0.7rem; color: #9ca3af; font-family: 'Menlo', 'Consolas', monospace; }
         .card-status { font-size: 0.78rem; color: #6b7280; }
@@ -191,7 +244,7 @@
         #topProgress {
             position: fixed; top: 0; left: 0; right: 0;
             height: 2px; z-index: 9999; pointer-events: none;
-            background: linear-gradient(90deg, transparent 0%, #6366f1 30%, #38bdf8 70%, transparent 100%);
+            background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
             background-size: 40% 100%; background-repeat: no-repeat;
             animation: topProgressSlide 1.1s ease-in-out infinite;
         }
@@ -222,9 +275,19 @@
             flex-direction: column;
             max-height: calc(100vh - 32px);
             max-height: calc(100svh - 32px);
+            animation: modalIn 0.16s ease-out;
         }
         dialog.modal::backdrop {
             background: rgba(0,0,0,0.35);
+            animation: backdropIn 0.16s ease-out;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: translateY(6px) scale(0.985); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes backdropIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
         }
         .modal-head {
             flex: 0 0 auto;
@@ -292,7 +355,7 @@
             content: '';
             width: 14px; height: 14px;
             border: 2px solid #e5e7eb;
-            border-top-color: #2563eb;
+            border-top-color: var(--accent);
             border-radius: 50%;
             animation: pair-spin 0.8s linear infinite;
         }
@@ -340,9 +403,9 @@
             margin-bottom: 6px;
         }
         .ws-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-        .dot-ok { background: #16a34a; }
-        .dot-err { background: #dc2626; }
-        .dot-wait { background: #f59e0b; }
+        .dot-ok { background: var(--status-present); }
+        .dot-err { background: var(--danger); }
+        .dot-wait { background: var(--warn); }
         .ws-label { font-size: 0.72rem; color: #64748b; }
         .log-close-btn {
             -webkit-appearance: none; appearance: none;
@@ -1039,7 +1102,7 @@
             const rssi = sigs.rssi.value;
             const stateLine = sigs.state.value;
             const lastSeen = sigs.lastSeen.value;
-            const cardRef = useRef(null);
+            const dotRef = useRef(null);
 
             let baseState = 'absent';
             let isDetecting = false;
@@ -1060,18 +1123,18 @@
                 /* devices 응답의 snapshot fallback — WS sm: 미도착 상태 처리. */
                 baseState = 'present';
             }
-            const color = baseState === 'present' ? '#16a34a' : '#e5e7eb';
             const displayRssi = (rssi != null) ? rssi : (device.rssi ?? null);
 
+            const dotClass = isDetecting ? 'detecting' : (baseState === 'present' ? 'present' : '');
+
+            /* sm: 라인 도착 시 dot에 ring burst (detecting 동안엔 pulse가 계속 돌아 burst가 묻혀
+             * 보이지만 settled 상태 전환에서는 명확히 보임). */
             useEffect(() => {
                 if (!stateLine) return;
-                if (!stateLine.includes('detecting')
-                    && !stateLine.includes('present')
-                    && !stateLine.includes('unlock')) return;
-                const el = cardRef.current;
+                const el = dotRef.current;
                 if (!el) return;
                 el.classList.remove('burst');
-                void el.offsetWidth;  // reflow → animation restart
+                void el.offsetWidth;
                 el.classList.add('burst');
             }, [stateLine]);
 
@@ -1094,14 +1157,16 @@
 
             return html`
                 <div class="status-card"
-                     ref=${cardRef}
                      id=${'card-' + macToId(mac)}
                      data-mac=${mac}
-                     style=${`--status-color: ${color}; --ripple-color: ${color}`}
-                     onClick=${() => onClick && onClick(mac)}
-                     onAnimationEnd=${(e) => e.currentTarget.classList.remove('burst')}>
+                     onClick=${() => onClick && onClick(mac)}>
                     <div class="card-header">
-                        <span class="card-alias">${alias || mac}</span>
+                        <div class="card-header-left">
+                            <span class=${'status-dot ' + dotClass}
+                                  ref=${dotRef}
+                                  onAnimationEnd=${(e) => e.currentTarget.classList.remove('burst')}></span>
+                            <span class="card-alias">${alias || mac}</span>
+                        </div>
                         <span class="card-mac">${mac}</span>
                     </div>
                     <div class="card-status">${statusText}</div>
@@ -1205,7 +1270,7 @@
             const showHint = !fileSignal.value && !ota.isPending && !ota.isSuccess && !ota.isError;
 
             return html`
-                <div class="card" style="border-color:#fecaca;">
+                <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">펌웨어 업데이트</div>
                     <input type="file" accept=".bin,application/octet-stream"
                            onChange=${onFileChange}/>
@@ -1229,7 +1294,7 @@
             const pass = useSignal('');
             const m = mutations.useAuthUpdate();
             return html`
-                <div class="card" style="border-color:#fecaca;">
+                <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">계정</div>
                     <label>사용자명</label>
                     <input type="text" maxlength="31" autocomplete="off"
@@ -1252,7 +1317,7 @@
             const pass = useSignal('');
             const m = mutations.useWifiUpdate();
             return html`
-                <div class="card" style="border-color:#fecaca;">
+                <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">WiFi</div>
                     <label>SSID</label>
                     <input type="text" maxlength="32" autocomplete="off"
@@ -1278,7 +1343,7 @@
         function RebootSection() {
             const m = mutations.useReboot();
             return html`
-                <div class="card" style="border-color:#fecaca;">
+                <div class="card" style="border-color:rgba(var(--danger-rgb), 0.3);">
                     <div class="card-label">재부팅</div>
                     <button class="btn btn-red" onClick=${() => m.mutate()}>기기 재부팅</button>
                     <${StatusLine} mutation=${m} okMsg="재부팅 중..." runMsg="재부팅 중..."/>
@@ -1295,7 +1360,7 @@
                         <${SlackSection}/>
                     </div>
                     <div class="section">
-                        <div class="section-title" style="color:#dc2626;">Danger Zone</div>
+                        <div class="section-title" style="color:var(--danger);">Danger Zone</div>
                         <${FirmwareSection}/>
                         <${AuthSection}/>
                         <${WifiSection}/>
@@ -1513,7 +1578,7 @@
                         `}
                         ${done && html`
                             <div>
-                                <span style="color:#16a34a; font-weight:600;">연결됨!</span>
+                                <span style="color:var(--status-present); font-weight:600;">연결됨!</span>
                                 <div class="pair-events">
                                     ${events.map((ev, i) => html`
                                         <div class="pair-event" key=${i}>
@@ -1715,7 +1780,7 @@
             const mutating = useIsMutating();
 
             if (info.isError) {
-                return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
+                return html`<div style="padding:2rem;color:var(--danger)">인증 실패: ${info.error.message}</div>`;
             }
 
             const devList = devices.data?.devices ?? devices.data ?? [];
