@@ -570,12 +570,16 @@
     const api = (() => {
         async function fetchJSON(path) {
             const res = await fetch(path, { credentials: 'same-origin' });
-            if (!res.ok) throw new Error(`${path} ${res.status}`);
+            if (!res.ok) {
+                throw new Error(`${path} ${res.status}`);
+            }
             return res.json();
         }
         async function fetchText(path) {
             const res = await fetch(path, { credentials: 'same-origin' });
-            if (!res.ok) throw new Error(`${path} ${res.status}`);
+            if (!res.ok) {
+                throw new Error(`${path} ${res.status}`);
+            }
             return (await res.text()).trim();
         }
         return { fetchJSON, fetchText };
@@ -1151,20 +1155,26 @@
             }
 
             function onPointerDown(e) {
-                if (triggered.value) return;
+                if (triggered.value) {
+                    return;
+                }
                 e.currentTarget.setPointerCapture(e.pointerId);
                 isDragging.value = true;
                 startX.current = e.clientX;
                 baseDragX.current = dragX.value;
             }
             function onPointerMove(e) {
-                if (!isDragging.value) return;
+                if (!isDragging.value) {
+                    return;
+                }
                 const delta = e.clientX - startX.current;
                 const m2 = maxDragX();
                 dragX.value = Math.max(0, Math.min(m2, baseDragX.current + delta));
             }
             function onPointerUp(e) {
-                if (!isDragging.value) return;
+                if (!isDragging.value) {
+                    return;
+                }
                 const movedFar = dragX.value >= 5;
                 isDragging.value = false;
                 e.currentTarget.releasePointerCapture(e.pointerId);
@@ -1266,9 +1276,13 @@
             /* sm: 라인 도착 시 dot에 ring burst (detecting 동안엔 pulse가 계속 돌아 burst가 묻혀
              * 보이지만 settled 상태 전환에서는 명확히 보임). */
             useEffect(() => {
-                if (!stateLine) return;
+                if (!stateLine) {
+                    return;
+                }
                 const el = dotRef.current;
-                if (!el) return;
+                if (!el) {
+                    return;
+                }
                 el.classList.remove('burst');
                 void el.offsetWidth;
                 el.classList.add('burst');
@@ -1367,9 +1381,13 @@
             const url = useSignal('');
             const m = mutations.useSlackUpdate();
             function onSave() {
-                if (m.isPending) return;
+                if (m.isPending) {
+                    return;
+                }
                 const v = url.value.trim();
-                if (v === '' && !confirm('URL을 비웠습니다. Slack 알림을 끄시겠습니까?')) return;
+                if (v === '' && !confirm('URL을 비웠습니다. Slack 알림을 끄시겠습니까?')) {
+                    return;
+                }
                 m.mutate(v);
             }
             return html`
@@ -1402,8 +1420,12 @@
             }
 
             function onUpload() {
-                if (!fileSignal.value || ota.isPending) return;
-                if (!confirm('펌웨어를 업데이트하시겠습니까?\n업로드 완료 후 기기가 자동 재부팅됩니다.')) return;
+                if (!fileSignal.value || ota.isPending) {
+                    return;
+                }
+                if (!confirm('펌웨어를 업데이트하시겠습니까?\n업로드 완료 후 기기가 자동 재부팅됩니다.')) {
+                    return;
+                }
                 ota.mutate(fileSignal.value);
             }
 
@@ -1438,8 +1460,12 @@
             const p = pass.value;
             const canSubmit = u !== '' && p !== '' && !m.isPending;
             function onSave() {
-                if (!canSubmit) return;
-                if (!confirm('계정 정보를 변경하시겠습니까?\n변경 후 새 정보로 다시 로그인해야 합니다.')) return;
+                if (!canSubmit) {
+                    return;
+                }
+                if (!confirm('계정 정보를 변경하시겠습니까?\n변경 후 새 정보로 다시 로그인해야 합니다.')) {
+                    return;
+                }
                 m.mutate({ user: u, pass: p });
             }
             return html`
@@ -1468,8 +1494,12 @@
             const p = pass.value;
             const canSubmit = s !== '' && !m.isPending;
             function onSave() {
-                if (!canSubmit) return;
-                if (!confirm('WiFi 설정을 변경하시겠습니까?\n저장 후 기기가 재부팅되며, 새 네트워크에서 다시 접속해야 합니다.')) return;
+                if (!canSubmit) {
+                    return;
+                }
+                if (!confirm('WiFi 설정을 변경하시겠습니까?\n저장 후 기기가 재부팅되며, 새 네트워크에서 다시 접속해야 합니다.')) {
+                    return;
+                }
                 m.mutate({ ssid: s, pass: p });
             }
             return html`
@@ -1493,8 +1523,12 @@
         function RebootSection() {
             const m = mutations.useReboot();
             function onReboot() {
-                if (m.isPending) return;
-                if (!confirm('기기를 재부팅하시겠습니까?\n약 10초간 접속이 끊깁니다.')) return;
+                if (m.isPending) {
+                    return;
+                }
+                if (!confirm('기기를 재부팅하시겠습니까?\n약 10초간 접속이 끊깁니다.')) {
+                    return;
+                }
                 m.mutate();
             }
             return html`
@@ -1602,7 +1636,9 @@
             }
 
             function onSave() {
-                if (!mac || saveM.isPending || deleteM.isPending) return;
+                if (!mac || saveM.isPending || deleteM.isPending) {
+                    return;
+                }
                 saveM.mutate({
                     mac,
                     alias: aliasSig.value.trim(),
@@ -1614,7 +1650,9 @@
             }
 
             function onDelete() {
-                if (!mac || saveM.isPending || deleteM.isPending) return;
+                if (!mac || saveM.isPending || deleteM.isPending) {
+                    return;
+                }
                 if (!confirm(`${mac} 기기의 본딩을 삭제할까요?\n삭제 후 다시 페어링해야 합니다.`)) {
                     return;
                 }
