@@ -672,7 +672,68 @@
                 },
             });
         }
-        return { useDoorOpen, useAutoUnlockToggle };
+        function useSlackUpdate() {
+            return useMutation({
+                mutationFn: (url) => fetch('/api/slack/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'url=' + encodeURIComponent(url),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useAuthUpdate() {
+            return useMutation({
+                mutationFn: ({ user, pass }) => fetch('/api/auth/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useWifiUpdate() {
+            return useMutation({
+                mutationFn: ({ ssid, pass }) => fetch('/api/wifi/update', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass),
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useReboot() {
+            return useMutation({
+                mutationFn: () => fetch('/api/reboot', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        return {
+            useDoorOpen, useAutoUnlockToggle,
+            useSlackUpdate, useAuthUpdate, useWifiUpdate, useReboot,
+        };
     })();
 
     const queries = (() => {
@@ -916,6 +977,142 @@
         }
 
         /**
+         * StatusLine — mutation 상태를 v1 .status div와 동일한 클래스로 매핑.
+         *
+         * v1 show(id, msg, cls) + post() 콜백을 선언적으로 대체합니다.
+         * idle은 null 반환 (v1 .status { display:none } 대응).
+         * inline style display:block은 v1 show()가 명시적으로 설정하던 동작 보존.
+         */
+        function StatusLine({ mutation, okMsg, runMsg = '전송 중...' }) {
+            if (mutation.isPending) {
+                return html`<div class="status run" style="display:block">${runMsg}</div>`;
+            }
+            if (mutation.isSuccess) {
+                return html`<div class="status ok" style="display:block">✓ ${okMsg}</div>`;
+            }
+            if (mutation.isError) {
+                const msg = mutation.error?.message ?? '오류';
+                return html`<div class="status err" style="display:block">✗ 실패: ${msg}</div>`;
+            }
+            return null;
+        }
+
+        /** SlackSection — Webhook URL 저장. 빈 URL 저장 = 알림 끔. */
+        function SlackSection() {
+            const url = useSignal('');
+            const m = mutations.useSlackUpdate();
+            return html`
+                <div class="card">
+                    <div class="card-label">Slack Webhook</div>
+                    <label>URL</label>
+                    <input type="text" maxlength="256" autocomplete="off"
+                           value=${url.value}
+                           onInput=${(e) => { url.value = e.target.value; }}/>
+                    <div class="hint" style="margin-top:6px;">URL을 비우고 저장하면 알림이 꺼집니다.</div>
+                    <button class="btn btn-blue" onClick=${() => m.mutate(url.value.trim())}>저장</button>
+                    <${StatusLine} mutation=${m} okMsg="저장됨"/>
+                </div>
+            `;
+        }
+
+        /**
+         * FirmwareSection — Phase 7 OTA 구현 전 disabled placeholder.
+         *
+         * 마크업/스타일은 v1과 동일하게 유지하되 input/button만 disabled.
+         */
+        function FirmwareSection() {
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">펌웨어 업데이트</div>
+                    <input type="file" accept=".bin,application/octet-stream" disabled/>
+                    <button class="btn btn-red" disabled>업로드 및 재부팅 (Phase 7)</button>
+                </div>
+            `;
+        }
+
+        /** AuthSection — 사용자명/비밀번호 변경. v1 updateAuth 동작 보존. */
+        function AuthSection() {
+            const user = useSignal('');
+            const pass = useSignal('');
+            const m = mutations.useAuthUpdate();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">계정</div>
+                    <label>사용자명</label>
+                    <input type="text" maxlength="31" autocomplete="off"
+                           value=${user.value}
+                           onInput=${(e) => { user.value = e.target.value; }}/>
+                    <label>비밀번호</label>
+                    <input type="password" maxlength="63"
+                           value=${pass.value}
+                           onInput=${(e) => { pass.value = e.target.value; }}/>
+                    <button class="btn btn-red"
+                            onClick=${() => m.mutate({ user: user.value.trim(), pass: pass.value })}>계정 변경</button>
+                    <${StatusLine} mutation=${m} okMsg="변경 완료. 탭을 닫고 새 인증으로 접속하세요."/>
+                </div>
+            `;
+        }
+
+        /** WifiSection — SSID/비밀번호 변경 후 재부팅. */
+        function WifiSection() {
+            const ssid = useSignal('');
+            const pass = useSignal('');
+            const m = mutations.useWifiUpdate();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">WiFi</div>
+                    <label>SSID</label>
+                    <input type="text" maxlength="32" autocomplete="off"
+                           value=${ssid.value}
+                           onInput=${(e) => { ssid.value = e.target.value; }}/>
+                    <label>비밀번호</label>
+                    <input type="password" maxlength="63"
+                           value=${pass.value}
+                           onInput=${(e) => { pass.value = e.target.value; }}/>
+                    <button class="btn btn-red"
+                            onClick=${() => m.mutate({ ssid: ssid.value.trim(), pass: pass.value })}>저장 및 재부팅</button>
+                    <${StatusLine} mutation=${m} okMsg="저장됨! 기기 재부팅 중..."/>
+                </div>
+            `;
+        }
+
+        /**
+         * RebootSection — 입력 없는 단일 버튼.
+         *
+         * v1은 confirm() dialog로 가드했으나 Phase 5 산출물 명세는 단순 버튼.
+         * 성공 시 mock 서버는 5초 후 새 wsToken 발급 + ws 강제 종료 (재부팅 시뮬).
+         */
+        function RebootSection() {
+            const m = mutations.useReboot();
+            return html`
+                <div class="card" style="border-color:#fecaca;">
+                    <div class="card-label">재부팅</div>
+                    <button class="btn btn-red" onClick=${() => m.mutate()}>기기 재부팅</button>
+                    <${StatusLine} mutation=${m} okMsg="재부팅 중..." runMsg="재부팅 중..."/>
+                </div>
+            `;
+        }
+
+        /** ManageTab — 관리 탭 패널 전체. */
+        function ManageTab() {
+            return html`
+                <div id="tab-manage" class="tab-panel active">
+                    <div class="section">
+                        <div class="section-title">설정</div>
+                        <${SlackSection}/>
+                    </div>
+                    <div class="section">
+                        <div class="section-title" style="color:#dc2626;">Danger Zone</div>
+                        <${FirmwareSection}/>
+                        <${AuthSection}/>
+                        <${WifiSection}/>
+                        <${RebootSection}/>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
          * App — 쿼리 의존성 체인을 관리하는 루트.
          *
          * info 도착 → enabled 토글 → 나머지 4개 쿼리 fire.
@@ -967,7 +1164,7 @@
                 <${Tabs} current=${currentTab}/>
                 ${currentTab.value === 'main'
                     ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}/>`
-                    : html`<div style="padding:1rem;color:#999">관리 탭은 Phase 5에서 구현</div>`}
+                    : html`<${ManageTab}/>`}
             `;
         }
         return { App };
