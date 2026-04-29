@@ -187,6 +187,18 @@
             font-size: 0.88rem; color: #9ca3af; line-height: 1.8;
         }
 
+        /* ── Skeleton (loading placeholder) ── */
+        .status-card.skeleton {
+            color: #d1d5db;
+            border-left-color: #e5e7eb;
+            cursor: default;
+            animation: skeletonPulse 1.2s ease-in-out infinite;
+        }
+        @keyframes skeletonPulse {
+            0%, 100% { opacity: 0.55; }
+            50%      { opacity: 0.85; }
+        }
+
         /* ── Modal (dialog) ── */
         dialog.modal {
             border: none; border-radius: 12px;
@@ -1094,9 +1106,23 @@
             `;
         }
 
-        /** DeviceCards — devices 응답에서 카드 렌더 + 빈 상태. onCardClick은 mac을 받음. */
-        function DeviceCards({ devices, onCardClick }) {
-            const list = devices?.devices ?? devices ?? [];
+        /** DeviceCards — query 객체를 받아 isPending/empty/list 3분기. */
+        function DeviceCards({ devicesQuery, onCardClick }) {
+            if (devicesQuery.isPending) {
+                return html`
+                    <div class="device-cards" id="deviceCards">
+                        ${[0, 1].map((i) => html`
+                            <div class="status-card skeleton" key=${i}>
+                                <div class="card-header">
+                                    <span class="card-alias">···</span>
+                                </div>
+                                <div class="card-status">불러오는 중</div>
+                            </div>
+                        `)}
+                    </div>
+                `;
+            }
+            const list = devicesQuery.data?.devices ?? devicesQuery.data ?? [];
             if (list.length === 0) {
                 return html`
                     <div class="device-cards" id="deviceCards">
@@ -1111,13 +1137,13 @@
             `;
         }
 
-        /** MainTab — 메인 탭 패널 전체. */
-        function MainTab({ devices, autoUnlock, onCardClick }) {
+        /** MainTab — 메인 탭 패널 전체. devicesQuery는 useQuery 반환 객체 그대로. */
+        function MainTab({ devicesQuery, autoUnlock, onCardClick }) {
             return html`
                 <div id="tab-main" class="tab-panel active">
                     <${DoorButton}/>
                     <${AutoUnlockToggle} status=${autoUnlock}/>
-                    <${DeviceCards} devices=${devices} onCardClick=${onCardClick}/>
+                    <${DeviceCards} devicesQuery=${devicesQuery} onCardClick=${onCardClick}/>
                 </div>
             `;
         }
@@ -1710,7 +1736,7 @@
                 <${SafeBanner} safeMode=${info.data?.safe_mode}/>
                 <${Tabs} current=${currentTab}/>
                 ${currentTab.value === 'main'
-                    ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}
+                    ? html`<${MainTab} devicesQuery=${devices} autoUnlock=${autoUnlock.data}
                                        onCardClick=${(mac) => { detailMac.value = mac; }}/>`
                     : html`<${ManageTab}/>`}
                 <${DetailModal} mac=${detailMac.value} device=${detailDevice}
