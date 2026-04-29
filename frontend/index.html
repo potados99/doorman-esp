@@ -937,7 +937,7 @@
                     </div>
                 </div>
                 <div class="hdr-meta">
-                    <span id="buildInfo">${info.version} · ${info.date}</span>
+                    <span id="buildInfo">${info ? `${info.version} · ${info.date}` : ''}</span>
                     ${' · '}
                     <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
                     <br/>
@@ -1694,9 +1694,6 @@
             const pairOpen = useSignal(false);
             const logOpen = useSignal(false);
 
-            if (info.isPending) {
-                return html`<div style="padding:2rem">로딩…</div>`;
-            }
             if (info.isError) {
                 return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
             }
@@ -1710,7 +1707,7 @@
                 <${Header} info=${info.data}
                            onPair=${() => { pairOpen.value = true; }}
                            onLog=${() => { logOpen.value = true; }}/>
-                <${SafeBanner} safeMode=${info.data.safe_mode}/>
+                <${SafeBanner} safeMode=${info.data?.safe_mode}/>
                 <${Tabs} current=${currentTab}/>
                 ${currentTab.value === 'main'
                     ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}
