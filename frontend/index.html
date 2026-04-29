@@ -1014,12 +1014,16 @@
         }
 
         /**
-         * DeviceCard — props로 mac/alias만 받고 RSSI/state는 signal에서 직접 구독.
+         * DeviceCard — props로 device 객체 전체를 받고, 라이브 telemetry는 signal에서 구독.
          *
          * 핵심: 부모 MainTab이 재렌더되지 않아도 sigs.rssi.value 접근으로 이 카드만 갱신.
-         * v1 updateCardDisplay (frontend/index.html:663-698) 로직을 React-style로 옮김.
+         * v1 updateCardDisplay (frontend/index_v1_legacy.html 시절 line 663-698) 로직을
+         * React-style로 옮김. signal 값 없으면(=WS 미도착) device 응답의 detected/rssi로
+         * fallback — v1 동등성 보장.
          */
-        function DeviceCard({ mac, alias, onClick }) {
+        function DeviceCard({ device, onClick }) {
+            const mac = device.mac;
+            const alias = device.alias;
             const sigs = state.getDeviceSignals(mac);
             const rssi = sigs.rssi.value;
             const stateLine = sigs.state.value;
@@ -1041,8 +1045,15 @@
                         detectNeed = dm[2];
                     }
                 }
+            } else if (device.detected) {
+                /* WS state 미도착: devices 응답의 detected fallback. 첫 로드 직후 또는
+                 * 재연결 직후, sm: 라인이 새로 안 와도 카드가 '미감지'로 떨어지지 않게. */
+                baseState = 'present';
             }
             const color = baseState === 'present' ? '#16a34a' : '#e5e7eb';
+
+            // signal 값(WS) 우선, 없으면 device 응답의 last_rssi snapshot.
+            const displayRssi = (rssi != null) ? rssi : (device.rssi ?? null);
 
             let statusText = '';
             if (isDetecting) {
@@ -1050,7 +1061,7 @@
             } else if (baseState === 'absent') {
                 statusText = '미감지';
             } else if (baseState === 'present') {
-                const rssiStr = (rssi !== null && rssi !== 0) ? ` · RSSI ${rssi}` : '';
+                const rssiStr = (displayRssi != null && displayRssi !== 0) ? ` · RSSI ${displayRssi}` : '';
                 let agoStr = '';
                 if (lastSeen) {
                     const sec = Math.floor((Date.now() - lastSeen) / 1000);
@@ -1088,7 +1099,7 @@
             }
             return html`
                 <div class="device-cards" id="deviceCards">
-                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} mac=${d.mac} alias=${d.alias} onClick=${onCardClick}/>`)}
+                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} device=${d} onClick=${onCardClick}/>`)}
                 </div>
             `;
         }
@@ -1382,7 +1393,7 @@
                         onCancel=${(e) => { e.preventDefault(); onClose(); }}>
                     <div class="modal-head">
                         <span class="modal-title">${device?.alias || mac || '기기 상세'}</span>
-                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                        <button class="modal-close" onClick=${onClose}>×</button>
                     </div>
                     <div class="modal-body">
                         <div class="modal-status-text">${statusText}</div>
@@ -1466,7 +1477,7 @@
                         onCancel=${(e) => { e.preventDefault(); onClose(); }}>
                     <div class="modal-head">
                         <span class="modal-title">기기 페어링</span>
-                        <button class="modal-close" onClick=${onClose}>&times;</button>
+                        <button class="modal-close" onClick=${onClose}>×</button>
                     </div>
                     <div class="modal-body">
                         ${!done && html`
