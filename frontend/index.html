@@ -71,17 +71,84 @@
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
 
-        /* ── Primary action ── */
-        .door-btn {
-            display: block; width: 100%;
-            padding: 16px;
-            background: var(--accent); color: #fff;
-            border: none; border-radius: 8px;
-            font: inherit; font-size: 1.05rem; font-weight: 700;
-            cursor: pointer;
-            transition: background 0.12s;
+        /* ── Primary action: slide to unlock ── */
+        .door-slider {
+            position: relative;
+            width: 100%; height: 60px;
+            border-radius: 999px;
+            background: rgba(var(--accent-rgb), 0.05);
+            border: 1px solid rgba(var(--accent-rgb), 0.2);
+            overflow: visible;       /* ripple이 트랙 밖으로 퍼짐 */
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
-        .door-btn:active { background: var(--accent-active); }
+        /* 열림 확정 시점에 thumb 우측 끝에서 페이지로 퍼지는 emerald wave. */
+        .door-ripple {
+            position: absolute;
+            top: 50%; left: 100%;
+            width: 80px; height: 80px;
+            margin: -40px 0 0 -40px;
+            border-radius: 50%;
+            background: radial-gradient(circle,
+                rgba(var(--status-present-rgb), 0.28) 0%,
+                rgba(var(--status-present-rgb), 0.12) 40%,
+                transparent 75%);
+            pointer-events: none;
+            z-index: 1;
+            animation: doorRipple 1.0s ease-out forwards;
+        }
+        @keyframes doorRipple {
+            0%   { transform: scale(0.3); opacity: 0; }
+            20%  { opacity: 1; }
+            100% { transform: scale(40); opacity: 0; }
+        }
+        .door-slider-hint {
+            position: absolute;
+            inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: rgba(var(--accent-rgb), 0.5);
+            font-size: 0.88rem; font-weight: 600;
+            letter-spacing: 1px;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .door-slider.dragging .door-slider-hint,
+        .door-slider.triggered .door-slider-hint { opacity: 0; }
+        /* drag 위치는 wrapper의 transform이 담당. handle 자체는 wiggle 등 별도
+         * animation을 쓸 수 있게 분리 (인라인 transform과 keyframe 충돌 회피). */
+        .door-slider-thumb-wrapper {
+            position: absolute;
+            top: 2px; left: 2px;
+            width: 54px; height: 54px;
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .door-slider.dragging .door-slider-thumb-wrapper { transition: none; }
+        .door-slider-handle {
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.4rem; font-weight: 700;
+            cursor: grab;
+            touch-action: none;
+            transition: background 0.2s;
+        }
+        .door-slider-handle:active { cursor: grabbing; }
+        .door-slider.triggered .door-slider-handle {
+            background: var(--status-present);
+        }
+        /* "이건 클릭이 아니라 슬라이드" 힌트. 안 움직였을 때 thumb이 우측으로
+         * 살짝 점프했다 돌아옴. iPhone old 정통 기교. */
+        .door-slider-handle.is-hint {
+            animation: thumbHint 0.45s cubic-bezier(0.36, 1.4, 0.5, 1);
+        }
+        @keyframes thumbHint {
+            0%   { transform: translateX(0); }
+            45%  { transform: translateX(10px); }
+            100% { transform: translateX(0); }
+        }
 
         /* ── Toggle pill ── */
         .auto-row {
@@ -1055,6 +1122,14 @@
          */
         function DoorButton() {
             const m = mutations.useDoorOpen();
+            const dragX = useSignal(0);
+            const isDragging = useSignal(false);
+            const triggered = useSignal(false);
+            const hint = useSignal(false);
+            const containerRef = useRef(null);
+            const startX = useRef(0);
+            const baseDragX = useRef(0);
+
             let statusClass = '';
             let statusText = '';
             if (m.isPending) {
@@ -1068,8 +1143,68 @@
                 statusText = '✗ 실패';
             }
             const showStatus = !!statusText;
+
+            function maxDragX() {
+                const c = containerRef.current;
+                return c ? c.clientWidth - 54 - 4 : 0;  /* handle 54 + padding 4 */
+            }
+
+            function onPointerDown(e) {
+                if (triggered.value) return;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                isDragging.value = true;
+                startX.current = e.clientX;
+                baseDragX.current = dragX.value;
+            }
+            function onPointerMove(e) {
+                if (!isDragging.value) return;
+                const delta = e.clientX - startX.current;
+                const m2 = maxDragX();
+                dragX.value = Math.max(0, Math.min(m2, baseDragX.current + delta));
+            }
+            function onPointerUp(e) {
+                if (!isDragging.value) return;
+                const movedFar = dragX.value >= 5;
+                isDragging.value = false;
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                const m2 = maxDragX();
+                if (dragX.value >= m2) {
+                    /* 정확히 끝 도달 → 트리거. 모자라면 절대 안 열림. */
+                    triggered.value = true;
+                    m.mutate();
+                    setTimeout(() => {
+                        dragX.value = 0;
+                        triggered.value = false;
+                    }, 700);
+                } else if (!movedFar) {
+                    /* 거의 안 움직임 → "슬라이드 해야 함" 힌트 wiggle. */
+                    dragX.value = 0;
+                    hint.value = true;
+                    setTimeout(() => { hint.value = false; }, 450);
+                } else {
+                    dragX.value = 0;  /* 미달 → 처음으로 슬라이드 백 */
+                }
+            }
+
+            const cls = 'door-slider'
+                + (isDragging.value ? ' dragging' : '')
+                + (triggered.value  ? ' triggered' : '');
+
             return html`
-                <button class="door-btn" onClick=${() => m.mutate()}>문 열기</button>
+                <div class=${cls} ref=${containerRef}>
+                    ${triggered.value && html`<span class="door-ripple"></span>`}
+                    <span class="door-slider-hint">→ 밀어서 문 열기</span>
+                    <div class="door-slider-thumb-wrapper"
+                         style=${`transform: translateX(${dragX.value}px)`}>
+                        <div class=${'door-slider-handle' + (hint.value ? ' is-hint' : '')}
+                             onPointerDown=${onPointerDown}
+                             onPointerMove=${onPointerMove}
+                             onPointerUp=${onPointerUp}
+                             onPointerCancel=${onPointerUp}>
+                            <span class="arrow">${triggered.value ? '✓' : '→'}</span>
+                        </div>
+                    </div>
+                </div>
                 <div id="doorStatus" class=${'status ' + statusClass}
                      style=${showStatus ? 'display:block' : 'display:none'}>${statusText}</div>
             `;

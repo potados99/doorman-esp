@@ -9,8 +9,8 @@ test('로그인 후 메인 탭이 디바이스 카드와 함께 렌더링된다'
     // 메인 탭 default active
     await expect(page.locator('.tab.active')).toHaveText('메인');
 
-    // 문 열기 버튼
-    await expect(page.locator('button.door-btn')).toBeVisible();
+    // 문 열기 슬라이더
+    await expect(page.locator('.door-slider')).toBeVisible();
 
     // 자동 열림 토글
     await expect(page.locator('button.pill')).toBeVisible();
