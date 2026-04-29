@@ -635,6 +635,46 @@
         return { connect, disconnect };
     })();
 
+    /**
+     * mutations 모듈 — POST 액션을 wrap하는 useMutation 훅 모음.
+     *
+     * useDoorOpen: 응답은 'OK' 텍스트 (펌웨어 server.cpp door_open_handler).
+     * useAutoUnlockToggle: 응답이 'enabled'/'disabled' 텍스트 — onSuccess에서
+     *   ['autoUnlock'] 캐시를 직접 setQueryData로 갱신해 refetch 한 번 절약.
+     */
+    const mutations = (() => {
+        function useDoorOpen() {
+            return useMutation({
+                mutationFn: () => fetch('/api/door/open', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text();
+                }),
+            });
+        }
+        function useAutoUnlockToggle(queryClient) {
+            return useMutation({
+                mutationFn: () => fetch('/api/auto-unlock/toggle', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then((r) => {
+                    if (!r.ok) {
+                        throw new Error(String(r.status));
+                    }
+                    return r.text().then((t) => t.trim());
+                }),
+                onSuccess: (data) => {
+                    queryClient.setQueryData(['autoUnlock'], data);
+                },
+            });
+        }
+        return { useDoorOpen, useAutoUnlockToggle };
+    })();
+
     const queries = (() => {
         function useInfo() {
             return useQuery({
@@ -673,7 +713,208 @@
         return { useInfo, useDevices, useAutoUnlock, useWsToken, usePairingStatus };
     })();
 
+    /** MAC을 DOM id-safe 형태로. v1과 동일. */
+    function macToId(mac) {
+        return mac.replace(/:/g, '_');
+    }
+
     const components = (() => {
+        /**
+         * Header — 제목 + [+ 기기]/[로그] 버튼 + buildInfo + sysStats.
+         *
+         * sysStats는 signal이라 .value 접근으로 자동 구독. monitor 라인 도착 시
+         * 이 컴포넌트만 re-render.
+         */
+        function Header({ info }) {
+            const stats = state.sysStats.value;
+            const statsText = stats
+                ? `RAM ${Math.round(stats.ramFree / 1024)}/${Math.round(stats.ramTotal / 1024)}KB`
+                  + ` · PSRAM ${Math.round(stats.psramFree / 1024)}/${Math.round(stats.psramTotal / 1024)}KB`
+                  + ` · ${stats.tasks} tasks`
+                : '';
+            return html`
+                <div class="hdr">
+                    <h1>Doorman</h1>
+                    <div class="hdr-actions">
+                        <button class="icon-btn" onClick=${() => console.log('TODO: pair modal (Phase 6)')}>+ 기기</button>
+                        <button class="icon-btn" onClick=${() => console.log('TODO: log overlay (Phase 7)')}>📋</button>
+                    </div>
+                </div>
+                <div class="hdr-meta">
+                    <span id="buildInfo">${info.version} · ${info.date}</span>
+                    ${' · '}
+                    <a href="https://github.com/potados99/doorman-esp" target="_blank" rel="noopener">GitHub ↗</a>
+                    <br/>
+                    <span id="sysStats" style="font-size:0.68rem;color:#c4c4c4;">${statsText}</span>
+                </div>
+            `;
+        }
+
+        /** SafeBanner — info.safe_mode가 true일 때만. */
+        function SafeBanner({ safeMode }) {
+            if (!safeMode) {
+                return null;
+            }
+            return html`
+                <div id="safeBanner" class="safe-banner">
+                    세이프 모드 — 연속 crash로 BT/자동열림이 비활성화되었습니다. 펌웨어 업데이트 또는 기기 삭제 후 재부팅하세요.
+                </div>
+            `;
+        }
+
+        /** Tabs — 'main' | 'manage'. current는 부모가 보유한 signal. */
+        function Tabs({ current }) {
+            return html`
+                <div class="tabs">
+                    <button class=${'tab ' + (current.value === 'main' ? 'active' : '')}
+                            onClick=${() => { current.value = 'main'; }}>메인</button>
+                    <button class=${'tab ' + (current.value === 'manage' ? 'active' : '')}
+                            onClick=${() => { current.value = 'manage'; }}>관리</button>
+                </div>
+            `;
+        }
+
+        /**
+         * DoorButton — POST /api/door/open. 결과는 status div에 표시.
+         *
+         * isPending/isSuccess/isError 분기로 v1 show('doorStatus', ...) 동작 보존.
+         */
+        function DoorButton() {
+            const m = mutations.useDoorOpen();
+            let statusClass = '';
+            let statusText = '';
+            if (m.isPending) {
+                statusClass = 'run';
+                statusText = '전송 중...';
+            } else if (m.isSuccess) {
+                statusClass = 'ok';
+                statusText = '✓ 문이 열렸습니다';
+            } else if (m.isError) {
+                statusClass = 'err';
+                statusText = '✗ 실패';
+            }
+            const showStatus = !!statusText;
+            return html`
+                <button class="door-btn" onClick=${() => m.mutate()}>문 열기</button>
+                <div id="doorStatus" class=${'status ' + statusClass}
+                     style=${showStatus ? 'display:block' : 'display:none'}>${statusText}</div>
+            `;
+        }
+
+        /**
+         * AutoUnlockToggle — pill 토글.
+         *
+         * status는 'enabled'/'disabled' 텍스트. mutation onSuccess에서 캐시
+         * 직접 갱신해 즉시 반영.
+         */
+        function AutoUnlockToggle({ status }) {
+            const queryClient = useQueryClient();
+            const m = mutations.useAutoUnlockToggle(queryClient);
+            const on = status === 'enabled';
+            return html`
+                <div class="auto-row">
+                    <span>자동 열림</span>
+                    <button id="autoToggle"
+                            class=${'pill ' + (on ? 'on' : 'off')}
+                            onClick=${() => m.mutate()}>${on ? 'ON' : 'OFF'}</button>
+                </div>
+            `;
+        }
+
+        /**
+         * DeviceCard — props로 mac/alias만 받고 RSSI/state는 signal에서 직접 구독.
+         *
+         * 핵심: 부모 MainTab이 재렌더되지 않아도 sigs.rssi.value 접근으로 이 카드만 갱신.
+         * v1 updateCardDisplay (frontend/index.html:663-698) 로직을 React-style로 옮김.
+         */
+        function DeviceCard({ mac, alias }) {
+            const sigs = state.getDeviceSignals(mac);
+            const rssi = sigs.rssi.value;
+            const stateLine = sigs.state.value;
+            const lastSeen = sigs.lastSeen.value;
+
+            // detecting은 상태가 아닌 이펙트. 색상은 present/absent 두 가지만 (v1 STATE_COLORS).
+            let baseState = 'absent';
+            let isDetecting = false;
+            let detectCur = null;
+            let detectNeed = null;
+            if (stateLine) {
+                if (stateLine.includes('present') || stateLine.includes('unlock')) {
+                    baseState = 'present';
+                } else if (stateLine.includes('detecting')) {
+                    isDetecting = true;
+                    const dm = stateLine.match(/detecting (\d+)\/(\d+)/);
+                    if (dm) {
+                        detectCur = dm[1];
+                        detectNeed = dm[2];
+                    }
+                }
+            }
+            const color = baseState === 'present' ? '#16a34a' : '#e5e7eb';
+
+            let statusText = '';
+            if (isDetecting) {
+                statusText = detectCur ? `감지 중 ${detectCur}/${detectNeed}` : '감지 중';
+            } else if (baseState === 'absent') {
+                statusText = '미감지';
+            } else if (baseState === 'present') {
+                const rssiStr = (rssi !== null && rssi !== 0) ? ` · RSSI ${rssi}` : '';
+                let agoStr = '';
+                if (lastSeen) {
+                    const sec = Math.floor((Date.now() - lastSeen) / 1000);
+                    if (sec >= 1) {
+                        agoStr = ` · ${sec}초 전`;
+                    }
+                }
+                statusText = `재실${rssiStr}${agoStr}`;
+            }
+
+            // openDetailModal은 Phase 6에서 구현. 현재는 placeholder.
+            const onClick = () => console.log('TODO: open detail modal (Phase 6):', mac);
+
+            return html`
+                <div class="status-card"
+                     id=${'card-' + macToId(mac)}
+                     data-mac=${mac}
+                     style=${`--status-color: ${color}; --ripple-color: ${color}`}
+                     onClick=${onClick}>
+                    <div class="card-header">
+                        <span class="card-alias">${alias || mac}</span>
+                        <span class="card-mac">${mac}</span>
+                    </div>
+                    <div class="card-status">${statusText}</div>
+                </div>
+            `;
+        }
+
+        /** DeviceCards — devices 응답에서 카드 렌더 + 빈 상태. */
+        function DeviceCards({ devices }) {
+            const list = devices?.devices ?? devices ?? [];
+            if (list.length === 0) {
+                return html`
+                    <div class="device-cards" id="deviceCards">
+                        <div class="empty-state">등록된 기기가 없습니다.<br/>우상단 [+ 기기] 버튼을 눌러 블루투스 기기를 연결하세요.</div>
+                    </div>
+                `;
+            }
+            return html`
+                <div class="device-cards" id="deviceCards">
+                    ${list.map((d) => html`<${DeviceCard} key=${d.mac} mac=${d.mac} alias=${d.alias}/>`)}
+                </div>
+            `;
+        }
+
+        /** MainTab — 메인 탭 패널 전체. */
+        function MainTab({ devices, autoUnlock }) {
+            return html`
+                <div id="tab-main" class="tab-panel active">
+                    <${DoorButton}/>
+                    <${AutoUnlockToggle} status=${autoUnlock}/>
+                    <${DeviceCards} devices=${devices}/>
+                </div>
+            `;
+        }
+
         /**
          * App — 쿼리 의존성 체인을 관리하는 루트.
          *
@@ -689,7 +930,6 @@
             const devices = queries.useDevices(enabled);
             const autoUnlock = queries.useAutoUnlock(enabled);
             const wsToken = queries.useWsToken(enabled);
-            const pairing = queries.usePairingStatus(enabled);
 
             useEffect(() => {
                 if (!wsToken.data) {
@@ -712,6 +952,8 @@
                 }
             }, [devices.data]);
 
+            const currentTab = useSignal('main');
+
             if (info.isPending) {
                 return html`<div style="padding:2rem">로딩…</div>`;
             }
@@ -719,26 +961,13 @@
                 return html`<div style="padding:2rem;color:#c00">인증 실패: ${info.error.message}</div>`;
             }
 
-            // Phase 3 검증용 표시 (Phase 4 이후 진짜 UI로 대체)
-            const wsStatusVal = state.wsStatus.value;
-            const logCount = state.logBuffer.value.length;
-            const macCount = devices.data?.devices?.length ?? devices.data?.length ?? 0;
-            const stats = state.sysStats.value;
-
             return html`
-                <div style="padding:2rem;font-family:system-ui">
-                    <h1>Doorman v2 — Phase 3</h1>
-                    <p>info: ${info.data.version} · safe_mode: ${String(info.data.safe_mode)}</p>
-                    <p>autoUnlock: ${autoUnlock.data ?? '...'} · pairing: ${pairing.data ?? '...'}</p>
-                    <p>wsToken: ${wsToken.data ? wsToken.data.slice(0, 8) + '...' : '대기'}</p>
-                    <p>WS status: <b>${wsStatusVal}</b></p>
-                    <p>devices: ${macCount}대 · log: ${logCount}줄</p>
-                    <p>sysStats: ${stats ? `ram ${stats.ramFree}/${stats.ramTotal}` : '-'}</p>
-                    <details>
-                        <summary>최근 로그 5줄</summary>
-                        <pre style="font-size:0.7em;background:#f5f5f5;padding:1em">${state.logBuffer.value.slice(-5).join('\n')}</pre>
-                    </details>
-                </div>
+                <${Header} info=${info.data}/>
+                <${SafeBanner} safeMode=${info.data.safe_mode}/>
+                <${Tabs} current=${currentTab}/>
+                ${currentTab.value === 'main'
+                    ? html`<${MainTab} devices=${devices.data} autoUnlock=${autoUnlock.data}/>`
+                    : html`<div style="padding:1rem;color:#999">관리 탭은 Phase 5에서 구현</div>`}
             `;
         }
         return { App };

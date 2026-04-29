@@ -291,11 +291,13 @@ async function handleReboot(req, res) {
 async function handleAutoUnlockToggle(req, res) {
   await readBody(req).catch(() => {});
   state.autoUnlock = !state.autoUnlock;
-  sendJson(req, res, 200, { enabled: state.autoUnlock });
+  /* 펌웨어 server.cpp:843 — text 'enabled'/'disabled' 응답 */
+  sendText(req, res, 200, state.autoUnlock ? 'enabled' : 'disabled');
 }
 
 function handleAutoUnlockStatus(req, res) {
-  sendJson(req, res, 200, { enabled: state.autoUnlock });
+  /* 펌웨어 server.cpp:852 — text 'enabled'/'disabled' 응답 */
+  sendText(req, res, 200, state.autoUnlock ? 'enabled' : 'disabled');
 }
 
 async function handleSlackUpdate(req, res) {
