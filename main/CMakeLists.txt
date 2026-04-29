@@ -33,4 +33,11 @@ idf_component_register(
     EMBED_TXTFILES
         "../frontend/index.html"
         "../frontend/setup.html"
+        "../frontend/vendor/preact.mjs"
+        "../frontend/vendor/preact-hooks.mjs"
+        "../frontend/vendor/preact-jsx-runtime.mjs"
+        "../frontend/vendor/preact-signals.mjs"
+        "../frontend/vendor/preact-signals-core.mjs"
+        "../frontend/vendor/htm.mjs"
+        "../frontend/vendor/preact-query.mjs"
 )

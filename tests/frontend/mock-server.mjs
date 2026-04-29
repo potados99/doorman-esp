@@ -175,6 +175,25 @@ function handleIndex(req, res) {
   send(req, res, 200, buf, { 'Content-Type': 'text/html; charset=utf-8' });
 }
 
+/* /vendor/*.mjs — 펌웨어와 동일하게 frontend/vendor/에서 서빙 (인증 없음). */
+function handleVendor(req, res, urlPath) {
+  const name = urlPath.slice('/vendor/'.length);
+  if (!/^[a-z0-9_\-]+\.mjs$/.test(name)) {
+    return send(req, res, 404, 'Not Found', { 'Content-Type': 'text/plain' });
+  }
+  const filePath = path.join(PROJECT_ROOT, 'frontend', 'vendor', name);
+  try {
+    statSync(filePath);
+    const buf = readFileSync(filePath);
+    return send(req, res, 200, buf, {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+  } catch {
+    return send(req, res, 404, 'Not Found', { 'Content-Type': 'text/plain' });
+  }
+}
+
 async function handleDoorOpen(req, res) {
   await readBody(req).catch(() => {});
   sendText(req, res, 200, 'OK');
@@ -512,6 +531,11 @@ const server = http.createServer(async (req, res) => {
       const handler = ctlRoutes[key];
       if (!handler) return send(req, res, 404, 'Not Found');
       return await handler(req, res);
+    }
+
+    /* /vendor/*.mjs 인증 면제 (펌웨어와 동일). */
+    if (req.method === 'GET' && pathOnly.startsWith('/vendor/')) {
+      return handleVendor(req, res, pathOnly);
     }
 
     if (!checkAuth(req)) {
