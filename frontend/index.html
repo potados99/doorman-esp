@@ -502,12 +502,16 @@
         /** monitor 라인에서 추출되는 시스템 통계 */
         const sysStats = signal(null);  // { ramFree, ramTotal, psramFree, psramTotal, tasks }
 
+        /** "n초 전" 같은 시계 표시를 위한 1Hz tick. */
+        const nowTick = signal(Date.now());
+        setInterval(() => { nowTick.value = Date.now(); }, 1000);
+
         return {
             getDeviceSignals, deleteDevice, knownMacs,
             wsStatus, pairEvents, addPairEvent,
             pairingDone, resetPairing,
             logBuffer, appendLog,
-            sysStats,
+            sysStats, nowTick,
         };
     })();
 
@@ -1013,14 +1017,6 @@
             `;
         }
 
-        /**
-         * DeviceCard — props로 device 객체 전체를 받고, 라이브 telemetry는 signal에서 구독.
-         *
-         * 핵심: 부모 MainTab이 재렌더되지 않아도 sigs.rssi.value 접근으로 이 카드만 갱신.
-         * v1 updateCardDisplay (frontend/index_v1_legacy.html 시절 line 663-698) 로직을
-         * React-style로 옮김. signal 값 없으면(=WS 미도착) device 응답의 detected/rssi로
-         * fallback — v1 동등성 보장.
-         */
         function DeviceCard({ device, onClick }) {
             const mac = device.mac;
             const alias = device.alias;
@@ -1028,8 +1024,8 @@
             const rssi = sigs.rssi.value;
             const stateLine = sigs.state.value;
             const lastSeen = sigs.lastSeen.value;
+            const cardRef = useRef(null);
 
-            // detecting은 상태가 아닌 이펙트. 색상은 present/absent 두 가지만 (v1 STATE_COLORS).
             let baseState = 'absent';
             let isDetecting = false;
             let detectCur = null;
@@ -1046,14 +1042,23 @@
                     }
                 }
             } else if (device.detected) {
-                /* WS state 미도착: devices 응답의 detected fallback. 첫 로드 직후 또는
-                 * 재연결 직후, sm: 라인이 새로 안 와도 카드가 '미감지'로 떨어지지 않게. */
+                /* devices 응답의 snapshot fallback — WS sm: 미도착 상태 처리. */
                 baseState = 'present';
             }
             const color = baseState === 'present' ? '#16a34a' : '#e5e7eb';
-
-            // signal 값(WS) 우선, 없으면 device 응답의 last_rssi snapshot.
             const displayRssi = (rssi != null) ? rssi : (device.rssi ?? null);
+
+            useEffect(() => {
+                if (!stateLine) return;
+                if (!stateLine.includes('detecting')
+                    && !stateLine.includes('present')
+                    && !stateLine.includes('unlock')) return;
+                const el = cardRef.current;
+                if (!el) return;
+                el.classList.remove('burst');
+                void el.offsetWidth;  // reflow → animation restart
+                el.classList.add('burst');
+            }, [stateLine]);
 
             let statusText = '';
             if (isDetecting) {
@@ -1064,7 +1069,7 @@
                 const rssiStr = (displayRssi != null && displayRssi !== 0) ? ` · RSSI ${displayRssi}` : '';
                 let agoStr = '';
                 if (lastSeen) {
-                    const sec = Math.floor((Date.now() - lastSeen) / 1000);
+                    const sec = Math.floor((state.nowTick.value - lastSeen) / 1000);
                     if (sec >= 1) {
                         agoStr = ` · ${sec}초 전`;
                     }
@@ -1074,10 +1079,12 @@
 
             return html`
                 <div class="status-card"
+                     ref=${cardRef}
                      id=${'card-' + macToId(mac)}
                      data-mac=${mac}
                      style=${`--status-color: ${color}; --ripple-color: ${color}`}
-                     onClick=${() => onClick && onClick(mac)}>
+                     onClick=${() => onClick && onClick(mac)}
+                     onAnimationEnd=${(e) => e.currentTarget.classList.remove('burst')}>
                     <div class="card-header">
                         <span class="card-alias">${alias || mac}</span>
                         <span class="card-mac">${mac}</span>
@@ -1345,7 +1352,7 @@
                     const rssiStr = (liveRssi != null && liveRssi !== 0) ? ` · RSSI ${liveRssi}` : '';
                     let agoStr = '';
                     if (liveLastSeen) {
-                        const sec = Math.floor((Date.now() - liveLastSeen) / 1000);
+                        const sec = Math.floor((state.nowTick.value - liveLastSeen) / 1000);
                         if (sec >= 1) {
                             agoStr = ` · ${sec}초 전`;
                         }
