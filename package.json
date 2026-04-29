@@ -1,0 +1,15 @@
+{
+  "name": "doorman-esp-frontend-tools",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Mock 서버 + Playwright E2E (frontend v2 마이그레이션 전용)",
+  "scripts": {
+    "mock": "node tests/frontend/mock-server.mjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "ws": "^8.18.0"
+  }
+}

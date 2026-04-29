@@ -21,3 +21,12 @@ sdkconfig.old
 
 # IDF component manager downloads
 managed_components/
+
+# Frontend test infra
+node_modules/
+package-lock.json
+test-results/
+playwright-report/
+
+# Serena MCP
+.serena/
